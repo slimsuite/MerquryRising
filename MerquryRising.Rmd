@@ -1,0 +1,651 @@
+---
+title: "Merqury Rising: Kmer-based QV Assessment"
+author: "Richard J. Edwards"
+date: "01/11/2023"
+version: "v0.2.0"
+output:
+  html_document:
+    #css: http://www.slimsuite.unsw.edu.au/stylesheets/slimhtml.css
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    toc_depth: 3
+    number_sections: true
+---
+
+# Introduction
+
+This RMarkdown is designed to be a standalone RMarkdown file that will read in a configuration file (`merquryrising.config`), consisting of tab-delimited pairs of `setting` and `value`, and then a bunch of Merqury output files.
+
+The Merqury files needed are:
+
+* Read kmer `*.hist.ploidy` file.
+* A set of `*.only.hist` files of assembly-only kmer counts.
+* A set of `*.spectra-cn.hist` files of read and assembly kmer counts.
+
+If no input file names are provided, `MerquryRising` will look for files in a `merqury` directory and use the first `*.hist.ploidy` file it finds for the ploidy setting. It will then process all `*.only.hist` files in the directory.
+
+`MerquryRising` has two main run modes:
+
+1. Default mode will compare each kmer histogram with the preceding one.
+2. Reference mode will compare every kmer histogram with the same reference. (Either named, else the first file.)
+
+## R libraries
+
+`MerquryRising` makes use of the following libraries:
+
+```
+library(tidyverse)
+library(ggridges)
+library(grDevices)
+library(GGally)
+library(RColorBrewer)
+library(ggstatsplot)
+library(writexl)
+library(kableExtra)
+library(tools)
+```
+
+
+```{r rmd, echo=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE)
+#!# Continue setting results='asis' to avoid wrapping in ```.
+#?# I wonder if this is the solution for HTML output within loops?
+
+# HISTORY
+# v0.1.0 - Initial draft version
+# v0.2.0 - Added config file to settings
+
+# TO DO
+# [Y] : Implement reading of setting from merquryrising.config.
+# [Y] : Need to add aliases for the input files, as these are often very long!
+# [ ] : Add output of tables to a tables/ directory, and plots to a plots/ directory?
+# [ ] : Partition information between function script (this one) and the Tutorial.Rmd
+# [ ] : Rationalise the use of sig fig or dp?
+
+
+# Load libraries
+library(tidyverse)
+library(ggridges)
+library(GGally)
+library(grDevices)
+library(RColorBrewer)
+library(ggstatsplot)
+library(writexl)
+library(kableExtra)
+library(tools)
+#library(circlize)
+
+# Set default settings. Can be over-ridden with merquryrising.config.
+#!# Need a better way of setting rdir
+settings = list(basefile="merquryrising",   # Prefix for output files (log and plots)
+                config="merquryrising.config",   # Name of the config file
+                boundary="calculate",       # Whether to load or calculate boundaries
+                merqurydir="merqury",       # Directory containing merqury output files for processing
+                histfiles="*.spectra-cn.hist",   # list.files() pattern match for input files
+                histsort=FALSE,             # Optional re-ordering of input files (comma separated list)
+                labels="merquryrising.fofn",     # FOFN with labels mapping on to histfiles
+                ploidy="default",           # Ploidy of the assembly (hap/dip). If default/parse, will look for a "dip" suffix in the assembly name.
+                ploidyfile="default",       # Name of the ploidy file. If default" will use the first *.ploidy file
+                only=TRUE,                  # Whether to add extra kmers to represent the assembly-only fraction
+                makexlsx=FALSE,             # Make TRUE to generate compiled Excel file
+                outlog=stdout(),            # Change to filename for log output.
+                rdir="~/Library/CloudStorage/OneDrive-TheUniversityofWesternAustralia/github/SLiMSuiteDev/libraries/r",
+                pngwidth=1200,pngheight=900,pointsize=24,
+                reference="default")        # Reference dataset for pairwise comparisons
+if(! file.exists(settings$config)){
+  cfg <- tibble(Setting=names(settings),Value = unlist(settings)) %>%
+    filter(Setting != "outlog")
+  write_csv(cfg,settings$config,col_names = FALSE)
+}else{
+  cfg <- read_csv(settings$config,col_names = FALSE)
+  colnames(cfg) <- c("Setting","Value")
+  rownames(cfg) <- cfg$Setting
+  for(arg in c("basefile","merqurydir","histfiles","histsort","ploidy","ploidyfile","outlog","rdir","reference","labels")){
+    if(arg %in% rownames(cfg)){
+      settings[[arg]] <- cfg[arg,]$Value
+    }
+  }
+  
+  # [ ] : Add rest of reading from merquryrising.config here.
+  
+}
+
+#i# Special treatment of settings
+# - Convert histsort to integer vector if needed
+for(cmd in c("histsort")){
+  if(settings[[cmd]] != "FALSE"){
+    if(sum(grep(",",settings[[cmd]],fixed=TRUE)) > 0){
+      settings[[cmd]] = as.integer(strsplit(settings[[cmd]],',',TRUE)[[1]])
+    }
+  }
+}
+
+
+```
+
+**NOTE:** Reading from `merquryrising.config` is not yet implemented.
+
+**NOTE:** Once implemented, the config file should at least contain the R directory pointing to the `MerquryRising` github.
+
+```{r functions}
+#i# logWrite() will prefix a sentence with the current date and time before writing to STDOUT
+logWrite <- function(logstr){
+  writeLines(paste0("[",date(),"] ",logstr),con=settings$outlog)
+}
+
+#i# Load the rje_load.R functions
+sfile <- paste0(settings$rdir,"/rje_load.R")
+logWrite(sfile)
+source(sfile)
+
+#i# Load the rje_load.R functions
+sfile <- paste0(settings$rdir,"/rje_plots.R")
+logWrite(sfile)
+source(sfile)
+
+#i# End of section
+logWrite('Functions declared. Ready to load data!')
+```
+
+
+## Load and Integrate Data
+
+The general `MerquryRising` workflow is as follows:
+
+- Run Merqury.
+- Establish list of input assembly files and build alias list (`G1` to `Gn`).
+- Load the read kmer frequency boundaries from the ploidy file: `ploidy`, `depth`, `boundary`.
+- Load the `*.spectra-cn.hist` data tables into tibbles with 3 fields: `afreq` (kmer frequency in assembly), `rfreq` (kmer frequency in reads) and `knum` (number of different kmers).
+- Convert the `read-only` kmers into `0` and make sure all fields are integers.
+- Add the `*.only.hist` data to each table.
+- Join all the count tables by `afreq` and `rfreq` to give a field per input file. (`G1` to `Gn`). [`Table1`]
+- Convert `Table1` into a version of all values relative to reference. [`Table2`]
+- Convert `Table1` into a long version [`Table3`] -> `knum` and `assembly`.
+- Convert `Table3` `rfreq` into categories based on `ploidy`: `low`, `hap`, `dip`, `high`.
+- Create a `Table3` `class` field, based on `afreq` and `rfreq` (see below)
+- Collapse by `class` and sum up the `knum`
+- Create a `Table4` from `Table3` with the `purge` categories (see below)
+- Generate a horizontal stacked bar plot of each assembly: noise, only, lowQ, duplicate, alternate, haploid, diploid, repeats, collapsed, missing [`Table3`]
+- Generate a horizontal stacked bar plot of each assembly: noise, only, under, good, over [`Table4`]
+- Generate a kmer difference plot for each assembly versus the reference with afreq of 0, 1, 2, 3+ [`Table2`]
+- Reshape `Table3` and `Table4` wide and convert into difference versus reference. Generate difference plots.
+
+**NOTE:** The `only` class could indicate assembly errors, or it could indicate missing kmers due to sequencing biases. As such, they are excluded from the classification, as are the `noise` kmers, which are suspected read errors or contamination.
+
+### Kmer classes
+
+**NOTE:** These are currently based on haploid assemblies. Will want to add a diploid assembly mode with different ratings - here, we expect to have two copies of the diploid kmers in the the assembly.
+
+**QUESTION:** Should this be a separate run mode for all the assemblies, or should we parse "dip" from the hist name (ploidy=parse)? Check what merqury does if you give it two assemblies and it generates three outputs - so far, the data has been generated from separate runs.
+
+**NOTE:** At present, it is much easier to make everything match either haploid or diploid, rather than have a mixture of both.
+
+```{r hapkmerclasses}
+#i# Create the table of kmer classes
+kclassdb <- tibble(afreq=c("1","2+","0","1","2+","0","1","2+","0","1","2+","0","1","2+"),
+                   rfreq=c("none","none","low","low","low","hap","hap","hap","dip","dip","dip","high","high","high"),
+                   class=c("only","only","noise","lowQ","lowQ","alternate","haploid","duplicate","missing","diploid","duplicate","missing","collapsed","repeats"),
+                   purge=c("only","only","n/a","under","under","good","good","under","over","good","under","over","over","good"))
+#!# Add dipclass and dippurge here. Need to expand to 2 and 3+ for this #!#
+
+kable(kclassdb, "html", caption = "MerquryRising Kmer frequency classes.", align = "c") %>% kable_styling("striped", full_width = F)
+
+#Q# Can/should we convert the Under/Good/Over into single percentages and report? Report the different between assemblies?
+```
+
+```{r dipkmerclasses}
+#i# Create the table of kmer classes
+kclassdb <- tibble(afreq=c("1","2","3+", "0","1","2","3+", "0","1","2","3+", "0","1","2","3+", "0","1","2","3+"),
+                   rfreq=c("none","none","none", "low","low","low","low", "hap","hap","hap","hap", "dip","dip","dip","dip", "high","high","high","high"),
+                   class=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","diploid","duplicate","duplicate", "missing","collapsed","collapsed","repeats"),
+                   purge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","good","under","under", "over","over","over","neutral"),
+                   dipclass=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","haploid","diploid","duplicate", "missing","collapsed","collapsed","repeats"),
+                   dippurge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","over","good","under", "over","over","over","neutral")
+                   )
+#!# Add dipclass and dippurge here. Need to expand to 2 and 3+ for this #!#
+
+kable(kclassdb, "html", caption = "MerquryRising Kmer frequency classes.", align = "c") %>% kable_styling("striped", full_width = F)
+
+#Q# Can/should we convert the Under/Good/Over into single percentages and report? Report the different between assemblies?
+```
+
+### Input genomes
+
+```{r set_files}
+# - Establish list of input assembly files and build alias list (`G1` to `Gn`).
+hfiles <- list.files(settings$merqurydir,settings$histfiles)  # '*.spectra-cn.hist')
+if(is.integer(settings$histsort)){
+  hfiles <- hfiles[settings$histsort]
+}
+hbase <- str_remove_all(hfiles, ".spectra-cn.hist")
+hnames <- str_remove_all(str_extract(hfiles, ".*\\.merqury"),".merqury")
+# Or: hnames <- str_match(hfiles, "^(.*?)\\.merqury")[,2]
+halias <- paste0("G",1:length(hbase))
+adb <- tibble(G=halias,name=hnames,base=hbase,file=hfiles)
+# - Map onto labels
+adb$label <- adb$name
+if(file.exists(settings$labels)){
+  labdb <- read.table(settings$labels) %>% rename(label=V1,file=V2)
+  adb <- left_join(adb %>% select(-label),labdb)
+}
+if(settings$labels == "FALSE"){
+  adb$label <- adb$G
+}
+kable(adb, "html", caption = "Input genome assemblies.", align = "l") %>% kable_styling("striped", full_width = F)
+
+```
+
+### QV and completeness
+
+This should be updated to load and merge from combined tables, but for now is going to load files from `qv` and `stats` subdirectories.
+
+```{r qvstats}
+adb$qv <- NA
+adb$completeness <- NA
+for(i in 1:nrow(adb)){
+  qvfile <- paste0(settings$merqurydir,"/qv/",adb$name[i],".merqury.qv")
+  if(file.exists(qvfile)){
+    adb$qv[i] <- read.table(qvfile)[1,4]
+  }
+  statsfile <- paste0(settings$merqurydir,"/stats/",adb$name[i],".merqury.completeness.stats")
+  if(file.exists(statsfile)){
+    adb$completeness[i] <- read.table(statsfile)[1,5]
+  }
+}
+
+kable(adb %>% select(label,name,qv,completeness) %>% rename(assembly=label),
+      "html", caption = "Merqury QV and completeness.", align = "l") %>% kable_styling("striped", full_width = F)
+
+```
+
+
+### Ploidy boundaries
+
+The classification percentages are ultimately defined by the ploidy boundaries, which for now are set by the `*.ploidy` file in the input merqury file directory. This is definitely a place with room for improvement, so please get in touch if you have any ideas or suggestions!
+
+The original iterations of this script used the `boundary` values loaded from the file, but these appear to be quite conservative and result in a lot of kmers being rated as over- or under-purged based on the merqury plots themselves, with a lot of the main distributions broader than the values loaded. They have therefore been replaced with:
+
+* The lower boundary is set to the _maximum_ value of 5, or 0.25 the haploid `depth`. Upto this value of `rfreq` (raw read kmer frequency), kmers are rated `low`. This is plotted as a solid black line on the Comparative Merqury plots.
+* The middle boundary is set to halfway between the haploid and diploid `depth`. Raw kmer frequencies above the `low` boundary and upto this middle boundary are rated `hap`. This is plotted as a solid red line on the Comparative Merqury plots, with the haploid peak a dotted red line.
+* The upper boundary is set to 1.5 the diploid `depth`. Raw kmer frequencies above the `hap` boundary and upto this upper boundary are rated `dip`. This is plotted as a solid blue line on the Comparative Merqury plots, with the diploid peak a dotted blue line. Above this boundary, kmers are rated as `high`.
+
+```{r load_ploidy}
+# - Load the read kmer frequency boundaries from the ploidy file: `ploidy`, `depth`, `boundary`.
+ploidyfile <- list.files(settings$merqurydir,'*ploidy')[1]
+if(file.exists(settings$ploidyfile)){
+  ploidyfile <- settings$ploidyfile
+}
+logWrite(paste('Using ploidy file',ploidyfile,'to set boundaries.'))
+ploidy <- read.delim(paste0(settings$merqurydir,'/',ploidyfile))
+if(settings$boundary == "calculate"){
+  ploidy$boundary[1] <- max(5, 0.25 * ploidy$depth[2])
+  ploidy$boundary[2] <- (ploidy$depth[2] + ploidy$depth[3]) / 2
+  ploidy$boundary[3] <- 1.5 * ploidy$depth[3]
+}
+kable(ploidy, "html", caption = "Ploidy boundaries.", align = "l") %>% kable_styling("striped", full_width = F)
+
+```
+
+### Load hist tables
+
+Generate `Table1` from the hist files.
+
+```{r loadhist}
+# - Load the `*.spectra-cn.hist` data tables into tibbles with 3 fields: `afreq` (kmer frequency in assembly), `rfreq` (kmer frequency in reads) and `knum` (number of different kmers).
+D <- list()
+Tab1 <- tibble()
+for(G in adb$G){
+  filename <- paste0(settings$merqurydir,"/",adb[adb$G==G,]$base,".spectra-cn.hist")
+  gdb <- loadTable(filename)
+  gdb <- gdb$data %>% rename(afreq=Copies,rfreq=kmer_multiplicity,knum=Count)
+  # - Convert the `read-only` kmers into `0`
+  gdb[gdb$afreq=="read-only",]$afreq <- 0
+  # - Convert the `>4` kmers into `5` and make sure all fields are integers.
+  gdb[gdb$afreq==">4",]$afreq <- 5
+  gdb$afreq <- as.integer(gdb$afreq)
+  # Add the assembly-only data
+  # - Add the `*.only.hist` data to each table.
+  filename <- paste0(settings$merqurydir,"/",adb[adb$G==G,]$base,".only.hist")
+  odb <- read.delim(filename,header=FALSE) %>% rename(afreq=V1,rfreq=V2,knum=V3)
+  D[[G]] <- bind_rows(odb,gdb)
+  # - Join all the count tables by `afreq` and `rfreq` to give a field per input file. (`G1` to `Gn`). [`Table1`]
+  gk <- D[[G]]
+  colnames(gk)[3] <- G
+  if(nrow(Tab1) > 0){
+    Tab1 <- full_join(Tab1, gk)
+  }else{
+    Tab1 <- gk
+  }
+}
+# - Fill out the NA values in Tab1 with zeros
+Tab1 <- Tab1 %>% mutate_all(~ replace(., is.na(.), 0))
+```
+
+
+### Reference-normalised scores
+
+Generate `Table2` from `Table1`, with all values relative to reference.
+
+
+```{r Table2}
+# - Convert `Table1` into a version of all values relative to reference. [`Table2`]
+#i# If settings$reference is `default`, will use the previous genome as the reference in each case
+#i# Otherwise, will compare all to a specific reference
+if(settings$reference %in% adb$name){
+  refG <- adb[settings$reference == adb$name,]$G
+}else{
+  if(settings$reference != "default"){
+    logWrite(paste("Cannot find reference:",settings$reference))
+  }
+  #!# Add option to use a number to pick the reference
+}
+Tab2 <- Tab1
+prevG <- adb$G[1]
+for(G in adb$G){
+  if(settings$reference == "default"){
+    refG <- prevG
+    prevG <- G
+  }
+  Tab2[[G]] <- Tab1[[G]] - Tab1[[refG]]
+}
+```
+
+At this point, we have two "wide" tables of the kmer counts for each genome that belong to different assembly (`afreq`) and raw (`rfreq`) frequency classes. `Table1` has absolute values, whilst `Table2` has values relative to the reference. 
+
+
+### Classification table
+
+Generate `Table3`. This is a "long" version of Table 1, with the addition of a `knum` field. `afreq` and `rfreq` are then converted to the categories based on `afreq` and ploidy.
+
+```{r Table3}
+# - Convert `Table1` into a long version [`Table3`] -> `knum` and `assembly`.
+#!# Add report of full ksize and then calculate the %assembly-only and adjust "collapsed"
+Tab3 <- Tab1 %>%
+  pivot_longer(
+    cols = starts_with("G"),
+    names_to = "assembly",
+    names_prefix = "G",
+    values_to = "knum"
+  ) %>% mutate(assembly = as.integer(assembly))
+# - Convert `Table3` `rfreq` into categories based on `ploidy`: `low`, `hap`, `dip`, `high`.
+Tab3$ploidy <- "none"
+Tab3[Tab3$rfreq > 0,]$ploidy <- "low"
+Tab3[Tab3$rfreq > ploidy$boundary[1],]$ploidy <- "hap"
+Tab3[Tab3$rfreq > ploidy$boundary[2],]$ploidy <- "dip"
+Tab3[Tab3$rfreq > ploidy$boundary[3],]$ploidy <- "high"
+Tab3$ploidy <- ordered(Tab3$ploidy,levels=c("none","low","hap","dip","high"))
+# - Create a `Table3` `class` field, based on `afreq` and `rfreq`
+Tab3$atype <- "3+"
+Tab3[Tab3$afreq < 3,]$atype <- "2"
+Tab3[Tab3$afreq < 2,]$atype <- "1"
+Tab3[Tab3$afreq < 1,]$atype <- "0"
+Tab3$atype <- ordered(Tab3$atype,levels=c("0","1","2","3+"))
+# - Generate the kfreq field = knum x rfreq
+# - If settings$only=TRUE, will add a fake rfreq according to the ploidy
+if(settings$only){
+  Tab3[Tab3$afreq == 1 & Tab3$rfreq ==0,]$rfreq <- ploidy$depth[2]
+  Tab3[Tab3$afreq == 2 & Tab3$rfreq ==0,]$rfreq <- ploidy$depth[3]
+}
+Tab3 <- Tab3 %>% 
+  group_by(atype,ploidy,assembly) %>%
+  summarise(kfreq = sum(knum * rfreq)) %>%
+  rename(afreq=atype, rfreq=ploidy) %>%
+  left_join(kclassdb)
+Tab3$purge <- ordered(Tab3$purge,levels=c("only","n/a","under","good","neutral","over"))
+Tab3$class <- ordered(Tab3$class,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
+Tab3$dippurge <- ordered(Tab3$dippurge,levels=c("only","n/a","under","good","neutral","over"))
+Tab3$dipclass <- ordered(Tab3$dipclass,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
+#!# Update to account for haploid and diploid assemblies
+dips <- endsWith(adb$name,"dip") | endsWith(adb$label,"dip")
+if(settings$ploidy == "hap"){ dips <- FALSE }
+if(settings$ploidy == "dip"){ dips <- TRUE }
+if(sum(dips) > 0){
+  dipi <- dips[Tab3$assembly]
+  Tab3[dipi,]$purge <- Tab3[dipi,]$dippurge
+  Tab3[dipi,]$class <- Tab3[dipi,]$dipclass
+}
+Tab3 <- Tab3 %>% select(-dippurge, -dipclass)
+```
+
+`Table3` should now have haploid- and diploid-specific ratings.
+
+```{r palettestuff}
+
+# Define the base colors
+green_base <- c("lightgreen", "darkgreen")
+blue_base <- c("lightblue", "darkblue")
+red_base <- c("lightcoral", "darkred")
+# Create palette functions
+green_palette <- colorRampPalette(green_base)
+blue_palette <- colorRampPalette(blue_base)
+red_palette <- colorRampPalette(red_base)
+# Generate the colors
+green_hues <- green_palette(4)
+blue_hues <- blue_palette(4)
+red_hues <- red_palette(4)
+# Combine the colors into a single palette
+mqrcol <- c(blue_hues, green_hues, red_hues)
+
+#i# Update the colour matching for the levels
+# - c("only","n/a","under","good","over"))
+purgecol <- c(mqrcol[1],"black",mqrcol[2],mqrcol[7],"grey",mqrcol[10])
+purgecoldf <- tibble(purge=c("only","n/a","under","good","neutral","over"),
+                     purgecol=purgecol)
+# - =c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing")
+classcol <- mqrcol[c(1:9,11)]
+classcoldf <- tibble(class=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"),
+                     classcol=classcol)
+
+# Create a data frame with the colors of the palette
+colors_df <- data.frame(
+  color = c(blue_hues, green_hues, red_hues)
+)
+# Create a ggplot object
+p <- ggplot(colors_df, aes(x = rep(1:4,3), y = c(1,1,1,1,2,2,2,2,3,3,3,3), fill = color)) +
+  geom_tile() +
+  scale_fill_identity() +
+  theme_void() +
+  theme(legend.position = "none")
+#print(p)
+
+
+```
+
+# Results
+
+## Purge classification plots
+
+
+
+```{r Table4, fig.width=6, fig.height=3}
+# - Create a `Table4` from `Table3` with the `purge` categories (see below)
+Tab4 <- Tab3 %>%
+  select(-class) %>%
+  group_by(purge,assembly) %>%
+  summarise(kfreq = sum(kfreq)) %>%
+  group_by(assembly) %>%
+  mutate(percentage = (kfreq / sum(kfreq)) * 100) 
+
+#Tab4$G <- ordered(adb$G[Tab4$assembly],levels=rev(adb$G))
+Tab4$G <- ordered(adb$label[Tab4$assembly],levels=rev(adb$label))
+
+kable(Tab4 %>% mutate(percentage = num(percentage, sigfig = 3)) %>%
+        pivot_wider(id_cols = G, names_from = purge, values_from = percentage) %>%
+        left_join(adb %>% select(label,completeness,qv) %>% rename(G=label)) %>%
+        rename(assembly=G),
+      "html", caption = "Simplified purge classifiers.", align = "l") %>% kable_styling("striped", full_width = F)
+
+#!# Add the QV and Completeness scores to this table
+
+Tab4$purge2 <- ordered(Tab4$purge,levels=rev(c("only","n/a","under","over","neutral","good")))
+purgecol2 <- purgecol[c(1:3,6,5,4)]
+
+p <- ggplot(Tab4, aes(x = percentage, y = G, fill = purge2)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(purgecol2)) +
+  labs(x = "Percentage", y = "Assembly") +
+  theme_minimal()
+print(p)
+
+
+Tab4$purge <- ordered(Tab4$purge,levels=rev(levels(Tab4$purge)))
+
+#Tab4 <- Tab4 %>% left_join(purgecoldf)
+
+p <- ggplot(Tab4, aes(x = percentage, y = G, fill = purge)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(purgecol)) +
+  labs(x = "Percentage", y = "Assembly") +
+  theme_minimal()
+print(p)
+
+
+
+
+# - Collapse by `class` and sum up the `knum` [`Table5`]
+Tab5 <- Tab3 %>%
+  select(-purge) %>%
+  group_by(class,assembly) %>%
+  summarise(kfreq = sum(kfreq)) %>%
+  group_by(assembly) %>%
+  mutate(percentage = (kfreq / sum(kfreq)) * 100) 
+
+#Tab5$G <- ordered(adb$G[Tab5$assembly],levels=rev(adb$G))
+Tab5$G <- ordered(adb$label[Tab5$assembly],levels=rev(adb$label))
+Tab5$class <- ordered(Tab5$class,levels=rev(levels(Tab5$class)))
+p <- ggplot(Tab5, aes(x = percentage, y = G, fill = class)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rev(classcol)) +
+  labs(x = "Percentage", y = "Assembly") +
+  theme_minimal()
+print(p)
+
+# Considered sigfig=3 but digits=2 is probably more useful
+kable(Tab5 %>% mutate(percentage = num(percentage, digits = 2)) %>%
+  pivot_wider(id_cols = G, names_from = class, values_from = percentage) %>%
+  rename(assembly=G), "html", caption = "Purge classifiers.", align = "l") %>% kable_styling("striped", full_width = F)
+
+
+#!# Add the "only" numbers
+
+#Q# How should the only kmers be handled? Nominally, each assembly-only kmer should be present at the diploid read depth?
+
+#?# Should the repeats be "neutral"?
+#!# Add a second plot without repeats
+
+# - Generate a horizontal stacked bar plot of each assembly: noise, only, lowQ, duplicate, alternate, haploid, diploid, repeats, collapsed, missing [`Table5`]
+# - Generate a horizontal stacked bar plot of each assembly: noise, only, under, good, over [`Table4`]
+
+# - Generate a kmer difference plot for each assembly versus the reference with afreq of 0, 1, 2, 3+ [`Table2`]
+
+
+# - Reshape `Table5` and `Table4` wide and convert into difference versus reference. Generate difference plots.
+
+```
+
+
+
+
+
+```{r merquryPlot}
+#i# Merqury code to standardise style.
+#i# Code based on: https://github.com/marbl/merqury/blob/master/plot/plot_spectra_cn.R
+gray = "black"
+red = "#E41A1C"
+blue = "#377EB8" # light blue = "#56B4E9"
+green = "#4DAF4A"
+purple = "#984EA3"  # purple = "#CC79A7"
+orange = "#FF7F00"  # orange = "#E69F00"
+yellow = "#FFFF33"
+
+merqury_col = c(gray, red, blue, green, purple, orange)
+merqury_brw <- function(dat, direction=1) {
+  merqury_colors=merqury_col[1:length(unique(dat))]
+  if (direction == -1) {
+    merqury_colors=rev(merqury_colors)
+  }
+  merqury_colors
+}
+
+ALPHA=0.4
+LINE_SIZE=0.3
+
+#i# Define a plotting function to make a merqury-style plot
+#># histTab should have three fields: afreq, rfreq, knum
+merquryPlot <- function(histTab){
+  dat <- dat %>%
+    filter(rfreq < ploidy[3,3]*2,afreq < 5)
+  dat$afreq <- ordered(dat$afreq,levels=0:4)
+  ymin <- min(dat[dat$rfreq > 3,]$knum) * 2
+  ymax <- max(dat[dat$rfreq > 3,]$knum) * 2
+  p <- ggplot(dat, aes(x = rfreq, y = knum, color = afreq)) +
+    geom_vline(xintercept=ploidy$boundary, color=merqury_col[1:3]) +
+    geom_vline(xintercept=ploidy$depth[2:3], linetype="dashed", color=merqury_col[2:3]) +
+    geom_line() +
+    geom_area(aes(fill = afreq), position = "identity", alpha = ALPHA) +
+    scale_color_manual(values = merqury_col) +
+    scale_fill_manual(values = merqury_col) +
+    ylim(ymin,ymax) + 
+    labs(x = "kmer frequency", y = "kmer count shift", color = "afreq") +
+    theme_minimal()
+  
+}
+```
+
+## Comparative Merqury plots
+
+These plots have been converted into relative values compared to the reference assembly.
+
+```{r plotsVsRef, results='asis'}
+
+for(i in 1:nrow(adb)){
+  pref = FALSE
+  pTab <- Tab2
+  if(settings$reference == "default"){
+    if(i < 2){
+      pref <- TRUE
+    }
+    refname <- adb$name[i-1]
+  }
+  if(settings$reference == adb$name[i]){
+    pref <- TRUE
+  }
+  if(settings$reference %in% adb$name){
+    refname <- settings$reference
+  }
+  if(pref){
+    pTab <- Tab1
+  }
+  G <- adb$G[i]
+  dat <- pTab %>% rename(knum=!!G) %>% select(afreq,rfreq,knum)
+  p <- merquryPlot(dat)
+  cat(paste('###',adb$name[i],'\n\n'))
+  
+  print(kable(adb[i,], "html", caption = adb$name[i], align = "l") %>% kable_styling("striped", full_width = F))
+  cat(paste('\n\n'))
+  if(! pref){
+    cat(paste0('\n\nRelative change of ',adb$name[i],' versus ',refname,':\n\n'))
+  }else{
+    cat(paste0('\n\nMerqury plot for ',adb$name[i],'.\n\n'))
+  }
+  print(p)
+  #cat(paste0('\n\n**Plot of relative change versus',refname,'.**\n\n'))
+  cat('\n\n')
+}
+
+
+
+
+```
+
+
+
+
+
+
+```{r planning, eval=FALSE, include=FALSE}
+#i# Future updates should incorporate BUSCO and DepthKopy (AGRatio) outputs for comparison.
+
+
+```
