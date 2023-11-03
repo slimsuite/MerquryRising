@@ -1,8 +1,8 @@
 ---
 title: "Merqury Rising Tutorial"
 author: "Richard J. Edwards"
-date: "01/11/2023"
-version: "v0.1.0"
+date: "03/11/2023"
+version: "v0.2.0"
 output:
   html_document:
     #css: http://www.slimsuite.unsw.edu.au/stylesheets/slimhtml.css
@@ -15,23 +15,7 @@ output:
 
 # Introduction
 
-This tutorial is designed to cover the basics of the main `MerquryRising.Rmd` markdown script. Following this initial commit, the two Rmd files will be edited in parallel to make the main Rmd more functional, and this Rmd more information.
-
-
-This RMarkdown is designed to be a standalone RMarkdown file that will read in a configuration file (`merquryrising.config`), consisting of tab-delimited pairs of `setting` and `value`, and then a bunch of Merqury output files.
-
-The Merqury files needed are:
-
-* Read kmer `*.hist.ploidy` file.
-* A set of `*.only.hist` files of assembly-only kmer counts.
-* A set of `*.spectra-cn.hist` files of read and assembly kmer counts.
-
-If no input file names are provided, `MerquryRising` will look for files in a `merqury` directory and use the first `*.hist.ploidy` file it finds for the ploidy setting. It will then process all `*.only.hist` files in the directory.
-
-`MerquryRising` has two main run modes:
-
-1. Default mode will compare each kmer histogram with the preceding one.
-2. Reference mode will compare every kmer histogram with the same reference. (Either named, else the first file.)
+This tutorial is designed to cover the basics of the main `MerquryRising.Rmd` markdown script. Following this initial commit, the two Rmd files will be edited in parallel to make the main Rmd more functional, and this Rmd have more information. Core functions are being moved to the `merquryrising.R` script, with a view to making this a standalone Rscript to make the basic figures and tables without the extra fluff.
 
 
 
@@ -42,6 +26,12 @@ If no input file names are provided, `MerquryRising` will look for files in a `m
 # Kmers
 # Kmer distributions (e.g. GenomeScope)
 # Merqury plots and statistics
+
+# MerquryRising
+
+## Installation
+
+## R libraries
 
 # Input files for MerquryRising
 # Setting ploidy boundaries
@@ -63,6 +53,31 @@ If no input file names are provided, `MerquryRising` will look for files in a `m
 
 
 
+# MerquryRising
+
+[MerquryRising](https://github.com/slimsuite/MerquryRising) is a standalone RMarkdown file for parsing outputs from [Merqury](https://github.com/marbl/merqury) and generating some additional plots to help assess the requirements and/or consequences of duplicate purging in genome assemblies. Please see the accompanying [Tutorial.html](./Tutorial.html) for additional information about the rationale behind the program and its features. The GitHub README will also contain some information about running the script. If you are not getting the outputs you expect, please check or update the `merquryrising.config` configuration file, consisting of tab-delimited pairs of `setting` and `value`. 
+
+The Merqury files needed are:
+
+* A set of `*.spectra-cn.hist` files of read and assembly kmer counts.
+* A corresponding set of `*.only.hist` files of assembly-only kmer counts.
+* An optional read kmer `*.hist.ploidy` file given with `ploidyfile=FILE`. If this is a `*.hist` file, this will be used to set all the boundaries.
+
+Input files are read from the directory specified by `merqurydir=PATH` (default:`merqury`) and are set by `histfiles=X` (wildcards allowed, default:`*.spectra-cn.hist`). A matching set of `*.only.hist` files are also expected. Human-friendly labels can be provided with a `merquryrising.fofn` file (`labels=FILE`) that consists of `label filename` as plain text. `filename` in this instance is the full name of the `*.spectra-cn.hist` file, excluding the path, _e.g._:
+
+```
+vhi2.0.hifiasm LutQuin_218497_OG10G.v230216hi2.0.hifiasm.merqury.LutQuin_218497_OG10G.v230216hi2.0.hifiasm.spectra-cn.hist
+vhi2.1.pafscaff LutQuin_218497_OG10G.v230216hi2.1.pafscaff.merqury.LutQuin_218497_OG10G.v230216hi2.1.pafscaff.spectra-cn.hist
+vhi2.2.diploidocus LutQuin_218497_OG10G.v230216hi2.2.diploidocus.merqury.LutQuin_218497_OG10G.v230216hi2.2.diploidocus.spectra-cn.hist
+vhi2.3.ragtag LutQuin_218497_OG10G.v230216hi2.3.ragtag.merqury.LutQuin_218497_OG10G.v230216hi2.3.ragtag.spectra-cn.hist
+vhi2.4.tweak LutQuin_218497_OG10G.v230216hi2.4.tweak.merqury.LutQuin_218497_OG10G.v230216hi2.4.tweak.spectra-cn.hist
+vhi2.5.hypo LutQuin_218497_OG10G.v230216hi2.5.hypo.merqury.LutQuin_218497_OG10G.v230216hi2.5.hypo.spectra-cn.hist
+vhi2.6.tidy2 LutQuin_218497_OG10G.v230216hi2.6.tidy2.merqury.LutQuin_218497_OG10G.v230216hi2.6.tidy2.spectra-cn.hist
+```
+
+1. Default mode will compare each kmer histogram with the preceding one.
+2. Reference mode will compare every kmer histogram with the same reference. (Either named, else the first file.)
+
 ## R libraries
 
 `MerquryRising` makes use of the following libraries:
@@ -78,6 +93,7 @@ library(writexl)
 library(kableExtra)
 library(tools)
 ```
+
 
 
 ```{r rmd, echo=FALSE, warning=FALSE, message=FALSE}
@@ -106,7 +122,7 @@ knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE
 #?# I wonder if this is the solution for HTML output within loops?
 
 #i# Set defaults for the Rmd implementation that might be different from the standalone version
-override <- c('fullrun=FALSE')
+override <- c('fullrun=FALSE','rdir=.')
 source('./merquryrising.R')
 
 
@@ -139,7 +155,7 @@ settings = list(basefile="merquryrising",   # Prefix for output files (log and p
                 outlog=stdout(),            # Change to filename for log output.
                 rdir="~/Library/CloudStorage/OneDrive-TheUniversityofWesternAustralia/github/SLiMSuiteDev/libraries/r",
                 pngwidth=1200,pngheight=900,pointsize=24,
-                pdfwidth=40,pdfheight=0,pdfscale=1,namesize=1,labelsize=1
+                pdfwidth=40,pdfheight=0,pdfscale=1,namesize=1,labelsize=1,
                 reference="default")        # Reference dataset for pairwise comparisons
 if(! file.exists(settings$config)){
   cfg <- tibble(Setting=names(settings),Value = unlist(settings)) %>%
@@ -172,29 +188,6 @@ for(cmd in c("histsort")){
 
 ```
 
-**NOTE:** Reading from `merquryrising.config` is not yet implemented.
-
-**NOTE:** Once implemented, the config file should at least contain the R directory pointing to the `MerquryRising` github.
-
-```{r functions}
-#i# logWrite() will prefix a sentence with the current date and time before writing to STDOUT
-logWrite <- function(logstr){
-  writeLines(paste0("[",date(),"] ",logstr),con=settings$outlog)
-}
-
-#i# Load the rje_load.R functions
-sfile <- paste0(settings$rdir,"/rje_load.R")
-logWrite(sfile)
-source(sfile)
-
-#i# Load the rje_load.R functions
-sfile <- paste0(settings$rdir,"/rje_plots.R")
-logWrite(sfile)
-source(sfile)
-
-#i# End of section
-logWrite('Functions declared. Ready to load data!')
-```
 
 
 ## Load and Integrate Data

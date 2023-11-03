@@ -1,7 +1,7 @@
 ########################################################
 ### Merqury Rising: Kmer-based QV Assessment   ~~~~~ ###
 ### VERSION: 0.2.0                             ~~~~~ ###
-### LAST EDIT: 02/11/23                        ~~~~~ ###
+### LAST EDIT: 03/11/23                        ~~~~~ ###
 ### AUTHORS: Richard Edwards 2023              ~~~~~ ###
 ### CONTACT: rich.edwards@uwa.edu.au           ~~~~~ ###
 ########################################################
@@ -59,7 +59,7 @@ library(tools)
 ### ~ Commandline arguments ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
 defaults = list(basefile="merquryrising",   # Prefix for output files (log and plots)
                 config="merquryrising.config",   # Name of the config file
-                boundary="calculate",       # Whether to load or calculate boundaries
+                boundary="calculate",       # Whether calculate boundaries or load from ploidy file if provided.
                 merqurydir="merqury",       # Directory containing merqury output files for processing
                 histfiles="*.spectra-cn.hist",   # list.files() pattern match for input files
                 histsort=FALSE,             # Optional re-ordering of input files (comma separated list)
@@ -160,9 +160,9 @@ getScriptPath <- function(){
 if(settings$rdir == ""){
   settings$rdir <- getScriptPath()
 }
-# sfile <- paste0(settings$rdir,"/rje_load.R")
-# logWrite(sfile)
-# source(sfile)
+sfile <- paste0(settings$rdir,"/rje_load.R")
+logWrite(sfile)
+source(sfile)
 
 ### ~ Configure Output ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
 settings$writexl = "writexl" %in% installed.packages()[,"Package"]
@@ -173,7 +173,59 @@ if(settings$writexl){
 }
 
 
+################################ ::: CORE VARIABLES ::: ###################################
+#i# This section defines the core variables that are used by MerquryRising but not loaded.
+
+### ~ Kmer classes ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+#i# Create the table of kmer classes
+kclassdb <- tibble(afreq=c("1","2","3+", "0","1","2","3+", "0","1","2","3+", "0","1","2","3+", "0","1","2","3+"),
+                   rfreq=c("none","none","none", "low","low","low","low", "hap","hap","hap","hap", "dip","dip","dip","dip", "high","high","high","high"),
+                   class=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","diploid","duplicate","duplicate", "missing","collapsed","collapsed","repeats"),
+                   purge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","good","under","under", "over","over","over","neutral"),
+                   dipclass=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","haploid","diploid","duplicate", "missing","collapsed","collapsed","repeats"),
+                   dippurge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","over","good","under", "over","over","over","neutral")
+)
+
+
+
 ################################## ::: FUNCTIONS ::: ######################################
+
+##### ======================== Ploidy Boundary functions ======================== #####
+#i# Define a function to calculate the diploid kmer frequency from a kmer table.
+#i# This will be the basis for being able to process assemblies with different data sources.
+#i# This could even open up the possibility of comparing different sequencing datasets for the same assembly.
+
+#i# Return modal values from a vector
+getmode <- function(v) {
+  uniqv <- unique(v)
+  return(uniqv[which.max(tabulate(match(v, uniqv)))])
+}
+
+#i# Idenitfy the diploid density peak - assumes it is higher than the haploid!
+#i# kmerTab needs rfreq and knum fields
+densityDiploid <- function(kmerTab,minfreq=5,maxfreq=1000,adjust=1,plot=TRUE){
+  writeLines("Calculating peak kmer frequency for ploidy...")
+  kdb <- kmerTab %>% filter(rfreq >= minfreq,rfreq <= maxfreq)
+  while(sum(kdb$knum) > 1e6){
+    kdb$knum <- as.integer(kdb$knum/10)
+  }
+  kvec <- rep(kdb$rfreq,kdb$knum)
+  n = 2048
+  while(max(kvec)*5 > n){
+    n = n * 2
+  }
+  kdens = density(kvec,n=n) #,adjust=adjust)
+  kdiploid <- kdens$x[kdens$y == max(kdens$y)]
+  khaploid <- kdiploid / 2
+  logWrite(paste("Peak kmer frequency:",kdiploid))
+  if(plot){
+    plot(kdens,xlim=c(0,kdiploid*2))
+    abline(v=kdiploid,col="blue")
+    abline(v=khaploid,col="red")
+  }
+  return(kdiploid)
+}
+
 
 ##### ======================== Loading data functions ======================== #####
 
@@ -186,6 +238,7 @@ if(settings$writexl){
 if(settings$tutorial){
   return()
 }
+logWrite('Functions declared. Ready to load data!')
 
 ##### ======================== Report key inputs ======================== #####
 
