@@ -178,17 +178,19 @@ if(settings$writexl){
 ################################ ::: CORE VARIABLES ::: ###################################
 #i# This section defines the core variables that are used by MerquryRising but not loaded.
 
+### ~ Master Data Tables ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+#i# For ease of updating multiple tables where needed, all the tibbles will now be part of a D list.
+D <- list()
+
 ### ~ Kmer classes ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
 #i# Create the table of kmer classes
-kclassdb <- tibble(afreq=c("1","2","3+", "0","1","2","3+", "0","1","2","3+", "0","1","2","3+", "0","1","2","3+"),
+D$kclassdb <- tibble(afreq=c("1","2","3+", "0","1","2","3+", "0","1","2","3+", "0","1","2","3+", "0","1","2","3+"),
                    rfreq=c("none","none","none", "low","low","low","low", "hap","hap","hap","hap", "dip","dip","dip","dip", "high","high","high","high"),
                    class=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","diploid","duplicate","duplicate", "missing","collapsed","collapsed","repeats"),
                    purge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","good","under","under", "over","over","over","neutral"),
                    dipclass=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","haploid","diploid","duplicate", "missing","collapsed","collapsed","repeats"),
                    dippurge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","over","good","under", "over","over","over","neutral")
 )
-
-
 
 ################################## ::: FUNCTIONS ::: ######################################
 
@@ -287,17 +289,94 @@ setInputFiles <- function(){
   return(adb)
 }
 
+#i# makeTab1 is the main Histogram loading function.
+# - Load the `*.spectra-cn.hist` data tables into tibbles with 3 fields: `afreq` (kmer frequency in assembly), `rfreq` (kmer frequency in reads) and `knum` (number of different kmers).
+makeTab1 <- function(D){
+  Tab1 <- tibble()
+  for(G in D$adb$G){
+    filename <- paste0(settings$merqurydir,"/",adb[adb$G==G,]$base,".spectra-cn.hist")
+    gdb <- loadTable(filename)
+    gdb <- gdb$data %>% rename(afreq=Copies,rfreq=kmer_multiplicity,knum=Count)
+    # - Convert the `read-only` kmers into `0`
+    gdb[gdb$afreq=="read-only",]$afreq <- 0
+    # - Convert the `>4` kmers into `5` and make sure all fields are integers.
+    gdb[gdb$afreq==">4",]$afreq <- 5
+    gdb$afreq <- as.integer(gdb$afreq)
+    # Add the assembly-only data
+    # - Add the `*.only.hist` data to each table.
+    filename <- paste0(settings$merqurydir,"/",adb[adb$G==G,]$base,".only.hist")
+    odb <- read.delim(filename,header=FALSE) %>% rename(afreq=V1,rfreq=V2,knum=V3)
+    # - Join all the count tables by `afreq` and `rfreq` to give a field per input file. (`G1` to `Gn`). [`Table1`]
+    gk <- bind_rows(odb,gdb)
+    colnames(gk)[3] <- G
+    dipk <- densityDiploid(gdb,plot=FALSE)
+    D$boundary <- bind_rows(D$boundary,makeBoundary(dipk,G))
+    if(nrow(Tab1) > 0){
+      Tab1 <- full_join(Tab1, gk)
+    }else{
+      Tab1 <- gk
+      if(settings$diploid < 1){
+        settings$diploid <- dipk
+      }
+    }
+  }
+  summary(D$boundary)
+  # - Fill out the NA values in Tab1 with zeros
+  D$Tab1 <- Tab1 %>% mutate_all(~ replace(., is.na(.), 0))
+  return(D)
+}
 
 ############################## ::: PLOTTING FUNCTIONS ::: #################################
+#i# Merqury code to standardise style.
+#i# Code based on: https://github.com/marbl/merqury/blob/master/plot/plot_spectra_cn.R
+gray = "black"
+red = "#E41A1C"
+blue = "#377EB8" # light blue = "#56B4E9"
+green = "#4DAF4A"
+purple = "#984EA3"  # purple = "#CC79A7"
+orange = "#FF7F00"  # orange = "#E69F00"
+yellow = "#FFFF33"
+merqury_col = c(gray, red, blue, green, purple, orange)
+ALPHA=0.4
 
+#i# Define a plotting function to make a merqury-style plot
+#># histTab should have three fields: afreq, rfreq, knum
+#># G is used to map onto the boundary file
+merquryPlot <- function(histTab,ytitle="kmer count shift",G="*"){
+  dipk <- settings$diploid * 1.5
+  if(G %in% boundary$G){
+    bD <- boundary %>% filter(G == !!G)
+  }else{
+    bD <- boundary %>% filter(G == "*")
+  }
+  dat <- histTab %>%
+    filter(rfreq < as.numeric(bD$high)*2,afreq < 5)
+  dat$afreq <- ordered(dat$afreq,levels=0:4)
+  ymin <- min(c(0,dat[dat$rfreq > 2,]$knum)) * 1.2
+  ymax <- max(c(10,dat[dat$rfreq > 2,]$knum)) * 1.2
+  # if(max(histTab$knum) > ymax){
+  #   histTab[histTab$knum > ymax,]$knum <- ymax
+  # }
+  p <- ggplot(dat, aes(x = rfreq, y = knum, color = afreq)) +
+    geom_vline(xintercept=c(bD$low,bD$mid,bD$high), color=merqury_col[1:3]) +
+    geom_vline(xintercept=c(bD$haploid,bD$diploid), linetype="dashed", color=merqury_col[2:3]) +
+    geom_line() +
+    geom_area(aes(fill = afreq), position = "identity", alpha = ALPHA) +
+    scale_color_manual(values = merqury_col) +
+    scale_fill_manual(values = merqury_col) +
+    ylim(ymin,ymax) + 
+    labs(x = "kmer frequency", y = ytitle, color = "afreq") +
+    theme_minimal()
+  
+}
 
 ############################## ::: PRE-PROCESSING DATA ::: #################################
 #i# This section generates any data that is not wrapped up in a function but still needed for the tutorial Rmd.
 
 # - Load the read kmer frequency boundaries from the ploidy file: `ploidy`, `depth`, `boundary`.
 #i# This will be the tibble of haploid, diploid, low, med and high frequencies.
-boundary <- tibble(G=c(),haploid=c(),diploid=c(),low=c(),mid=c(),high=c())
-ploidy <- tibble()   #i# This is if the boundaries are loaded from a ploidy file rather than calculate from hist.
+D$boundary <- tibble(G=c(),haploid=c(),diploid=c(),low=c(),mid=c(),high=c())
+D$ploidy <- tibble()   #i# This is if the boundaries are loaded from a ploidy file rather than calculate from hist.
 settings$diploid <- 0 # Will stay zero if failure
 ploidyfile <- list.files(settings$merqurydir,'*ploidy')[1]
 if(settings$boundary == "ploidy"){
@@ -309,11 +388,12 @@ if(file.exists(settings$boundary)){
     logWrite(paste('Using ploidy file',ploidyfile,'to set boundaries.'))
     ploidy <- read.delim(paste0(settings$merqurydir,'/',ploidyfile))
     settings$diploid <- ploidy$depth[3]
-    boundary <- tibble(assembly="*",haploid=ploidy$depth[2],diploid=ploidy$depth[3],low=ploidy$boundary[1],mid=ploidy$boundary[2],high=ploidy$boundary[3])
+    D$boundary <- tibble(assembly="*",haploid=ploidy$depth[2],diploid=ploidy$depth[3],low=ploidy$boundary[1],mid=ploidy$boundary[2],high=ploidy$boundary[3])
+    D$ploidy <- ploidy
   }else{
     kmerTab <- loadHist(ploidyfile)
     settings$diploid <- densityDiploid(kmerTab)
-    boundary <- makeBoundary(settings$diploid)
+    D$boundary <- makeBoundary(settings$diploid)
   }
 }
 
@@ -329,9 +409,13 @@ logWrite('Functions declared. Ready to load data!')
 ##### ======================== Report key inputs ======================== #####
 #i# Create the input data table
 adb <- setInputFiles()
-
+D$adb <- adb
 
 ##### ============================ Load Data ============================ #####
+if(! settings$rscript){
+  D <- makeTab1(D)
+  logWrite(paste(nrow(D$Tab1), "kmer frequency values loaded from hist files."))
+}
 
 ##### =========================== Process Data ========================== #####
 

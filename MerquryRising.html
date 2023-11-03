@@ -265,11 +265,67 @@ div.tocify {
 <li>Reference mode will compare every kmer histogram with the same reference. (Either named, else the first file.)</li>
 </ol>
 <p>To check the settings loaded from the config file, edit the Rmarkdown to have <code>debug=TRUE</code>.</p>
-<pre><code>## [Fri Nov  3 17:02:00 2023] #RCODE MerquryRising.R: v0.2.0
-## [Fri Nov  3 17:02:00 2023] #PATH Running from: /Users/redwards/Library/CloudStorage/OneDrive-TheUniversityofWesternAustralia/projects-ogl/HiFiGenomes-Aug23/dev/2023-10-31.MerquryRising/MerquryRising
-## [Fri Nov  3 17:02:00 2023] ./rje_load.R
-## [Fri Nov  3 17:02:00 2023] Functions declared. Ready to load data!
-## [Fri Nov  3 17:02:00 2023] #RCODE MerquryRising.R finished.</code></pre>
+<pre><code>## fullrun=FALSE
+## rdir=.
+## debug=TRUE
+## dev=TRUE
+## [Fri Nov  3 20:11:46 2023] #RCODE MerquryRising.R: v0.2.0
+## [Fri Nov  3 20:11:46 2023] #PATH Running from: /Users/redwards/Library/CloudStorage/OneDrive-TheUniversityofWesternAustralia/projects-ogl/HiFiGenomes-Aug23/dev/2023-10-31.MerquryRising/MerquryRising
+## [Fri Nov  3 20:11:46 2023] CMD: basefile = merquryrising
+## [Fri Nov  3 20:11:46 2023] CMD: boundary = calculate
+## [Fri Nov  3 20:11:46 2023] CMD: config = merquryrising.config
+## [Fri Nov  3 20:11:46 2023] CMD: debug = TRUE
+## [Fri Nov  3 20:11:46 2023] CMD: dev = TRUE
+## [Fri Nov  3 20:11:46 2023] CMD: diploid = 0
+## [Fri Nov  3 20:11:46 2023] CMD: fullrun = FALSE
+## [Fri Nov  3 20:11:46 2023] CMD: histfiles = *.spectra-cn.hist
+## [Fri Nov  3 20:11:46 2023] CMD: histsort = 1,2,3,4,5,6,7
+## [Fri Nov  3 20:11:46 2023] CMD: labels = merquryrising.fofn
+## [Fri Nov  3 20:11:46 2023] CMD: labelsize = 1
+## [Fri Nov  3 20:11:46 2023] CMD: makexlsx = FALSE
+## [Fri Nov  3 20:11:46 2023] CMD: merqurydir = merqury
+## [Fri Nov  3 20:11:46 2023] CMD: namesize = 1
+## [Fri Nov  3 20:11:46 2023] CMD: only = TRUE
+## [Fri Nov  3 20:11:46 2023] CMD: outlog = 3
+## [Fri Nov  3 20:11:46 2023] CMD: outlog = 3
+## [Fri Nov  3 20:11:46 2023] CMD: pdfheight = 0
+## [Fri Nov  3 20:11:46 2023] CMD: pdfscale = 1
+## [Fri Nov  3 20:11:46 2023] CMD: pdfwidth = 40
+## [Fri Nov  3 20:11:46 2023] CMD: ploidy = default
+## [Fri Nov  3 20:11:46 2023] CMD: ploidyfile = default
+## [Fri Nov  3 20:11:46 2023] CMD: pngheight = 900
+## [Fri Nov  3 20:11:46 2023] CMD: pngscale = 
+## [Fri Nov  3 20:11:46 2023] CMD: pngwidth = 1200
+## [Fri Nov  3 20:11:46 2023] CMD: pointsize = 24
+## [Fri Nov  3 20:11:46 2023] CMD: rdir = .
+## [Fri Nov  3 20:11:46 2023] CMD: reference = default
+## [Fri Nov  3 20:11:46 2023] CMD: rscript = FALSE
+## [Fri Nov  3 20:11:46 2023] CMD: tutorial = FALSE
+## [Fri Nov  3 20:11:46 2023] ./rje_load.R
+## [Fri Nov  3 20:11:46 2023] Functions declared. Ready to load data!
+## [Fri Nov  3 20:11:46 2023] #LOAD 41241 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.0.hifiasm.merqury.LutQuin_218497_OG10G.v230216hi2.0.hifiasm.spectra-cn.hist
+## Calculating peak kmer frequency for ploidy...
+## [Fri Nov  3 20:11:46 2023] Peak kmer frequency: 57.3321518930426
+## [Fri Nov  3 20:11:46 2023] #LOAD 41241 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.1.pafscaff.merqury.LutQuin_218497_OG10G.v230216hi2.1.pafscaff.spectra-cn.hist
+## Calculating peak kmer frequency for ploidy...
+## [Fri Nov  3 20:11:46 2023] Peak kmer frequency: 57.3321518930426
+## [Fri Nov  3 20:11:47 2023] #LOAD 43713 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.2.diploidocus.merqury.LutQuin_218497_OG10G.v230216hi2.2.diploidocus.spectra-cn.hist
+## Calculating peak kmer frequency for ploidy...
+## [Fri Nov  3 20:11:47 2023] Peak kmer frequency: 57.3321462939761
+## [Fri Nov  3 20:11:47 2023] #LOAD 43713 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.3.ragtag.merqury.LutQuin_218497_OG10G.v230216hi2.3.ragtag.spectra-cn.hist
+## Calculating peak kmer frequency for ploidy...
+## [Fri Nov  3 20:11:47 2023] Peak kmer frequency: 57.3321462939761
+## [Fri Nov  3 20:11:47 2023] #LOAD 43713 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.4.tweak.merqury.LutQuin_218497_OG10G.v230216hi2.4.tweak.spectra-cn.hist
+## Calculating peak kmer frequency for ploidy...
+## [Fri Nov  3 20:11:47 2023] Peak kmer frequency: 57.3321462939761
+## [Fri Nov  3 20:11:47 2023] #LOAD 44265 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.5.hypo.merqury.LutQuin_218497_OG10G.v230216hi2.5.hypo.spectra-cn.hist
+## Calculating peak kmer frequency for ploidy...
+## [Fri Nov  3 20:11:48 2023] Peak kmer frequency: 57.3321829978484
+## [Fri Nov  3 20:11:48 2023] #LOAD 44302 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.6.tidy2.merqury.LutQuin_218497_OG10G.v230216hi2.6.tidy2.spectra-cn.hist
+## Calculating peak kmer frequency for ploidy...
+## [Fri Nov  3 20:11:48 2023] Peak kmer frequency: 57.3321823757709
+## [Fri Nov  3 20:11:48 2023] 46349 kmer frequency values loaded from hist files.
+## [Fri Nov  3 20:11:48 2023] #RCODE MerquryRising.R finished.</code></pre>
 <div id="merqury-rising-workflow" class="section level2" number="1.1">
 <h2 number="1.1"><span class="header-section-number">1.1</span> Merqury Rising workflow</h2>
 <p>The general <code>MerquryRising</code> workflow is as follows:</p>
@@ -748,6 +804,12 @@ completeness
 <th style="text-align:left;">
 base
 </th>
+<th style="text-align:left;">
+file
+</th>
+<th style="text-align:left;">
+ofile
+</th>
 </tr>
 </thead>
 <tbody>
@@ -776,6 +838,12 @@ TRUE
 <td style="text-align:left;">
 LutQuin_218497_OG10G.v230216hi2.0.hifiasm.merqury.LutQuin_218497_OG10G.v230216hi2.0.hifiasm
 </td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.0.hifiasm.merqury.LutQuin_218497_OG10G.v230216hi2.0.hifiasm.spectra-cn.hist
+</td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.0.hifiasm.merqury.LutQuin_218497_OG10G.v230216hi2.0.hifiasm.only.hist
+</td>
 </tr>
 <tr>
 <td style="text-align:left;">
@@ -801,6 +869,12 @@ TRUE
 </td>
 <td style="text-align:left;">
 LutQuin_218497_OG10G.v230216hi2.1.pafscaff.merqury.LutQuin_218497_OG10G.v230216hi2.1.pafscaff
+</td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.1.pafscaff.merqury.LutQuin_218497_OG10G.v230216hi2.1.pafscaff.spectra-cn.hist
+</td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.1.pafscaff.merqury.LutQuin_218497_OG10G.v230216hi2.1.pafscaff.only.hist
 </td>
 </tr>
 <tr>
@@ -828,6 +902,12 @@ TRUE
 <td style="text-align:left;">
 LutQuin_218497_OG10G.v230216hi2.2.diploidocus.merqury.LutQuin_218497_OG10G.v230216hi2.2.diploidocus
 </td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.2.diploidocus.merqury.LutQuin_218497_OG10G.v230216hi2.2.diploidocus.spectra-cn.hist
+</td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.2.diploidocus.merqury.LutQuin_218497_OG10G.v230216hi2.2.diploidocus.only.hist
+</td>
 </tr>
 <tr>
 <td style="text-align:left;">
@@ -853,6 +933,12 @@ TRUE
 </td>
 <td style="text-align:left;">
 LutQuin_218497_OG10G.v230216hi2.3.ragtag.merqury.LutQuin_218497_OG10G.v230216hi2.3.ragtag
+</td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.3.ragtag.merqury.LutQuin_218497_OG10G.v230216hi2.3.ragtag.spectra-cn.hist
+</td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.3.ragtag.merqury.LutQuin_218497_OG10G.v230216hi2.3.ragtag.only.hist
 </td>
 </tr>
 <tr>
@@ -880,6 +966,12 @@ TRUE
 <td style="text-align:left;">
 LutQuin_218497_OG10G.v230216hi2.4.tweak.merqury.LutQuin_218497_OG10G.v230216hi2.4.tweak
 </td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.4.tweak.merqury.LutQuin_218497_OG10G.v230216hi2.4.tweak.spectra-cn.hist
+</td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.4.tweak.merqury.LutQuin_218497_OG10G.v230216hi2.4.tweak.only.hist
+</td>
 </tr>
 <tr>
 <td style="text-align:left;">
@@ -905,6 +997,12 @@ TRUE
 </td>
 <td style="text-align:left;">
 LutQuin_218497_OG10G.v230216hi2.5.hypo.merqury.LutQuin_218497_OG10G.v230216hi2.5.hypo
+</td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.5.hypo.merqury.LutQuin_218497_OG10G.v230216hi2.5.hypo.spectra-cn.hist
+</td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.5.hypo.merqury.LutQuin_218497_OG10G.v230216hi2.5.hypo.only.hist
 </td>
 </tr>
 <tr>
@@ -932,6 +1030,12 @@ TRUE
 <td style="text-align:left;">
 LutQuin_218497_OG10G.v230216hi2.6.tidy2.merqury.LutQuin_218497_OG10G.v230216hi2.6.tidy2
 </td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.6.tidy2.merqury.LutQuin_218497_OG10G.v230216hi2.6.tidy2.spectra-cn.hist
+</td>
+<td style="text-align:left;">
+LutQuin_218497_OG10G.v230216hi2.6.tidy2.merqury.LutQuin_218497_OG10G.v230216hi2.6.tidy2.only.hist
+</td>
 </tr>
 </tbody>
 </table>
@@ -950,37 +1054,182 @@ LutQuin_218497_OG10G.v230216hi2.6.tidy2.merqury.LutQuin_218497_OG10G.v230216hi2.
 </ul>
 <p><strong>NOTE:</strong> For very heterozygous genomes, where the haploid peak exceeds the diploid peak, the diploid peak calculation will break. For these, it is advised to make and load a <code>*.ploidy</code> file to use for all assemblies.</p>
 <p><strong>NOTE:</strong> The classification percentages are ultimately defined by the ploidy boundaries, which do not fully capture the extent of each sub-distribution of kmers. As a consequence, there will always be a degree of mis-assigned kmers. For this reason, percentages are best considered as comparative values rather than absolute values.</p>
+<table class="table table-striped" style="width: auto !important; margin-left: auto; margin-right: auto;">
+<caption>
+Ploidy boundaries for all assemblies.
+</caption>
+<thead>
+<tr>
+<th style="text-align:left;">
+G
+</th>
+<th style="text-align:left;">
+haploid
+</th>
+<th style="text-align:left;">
+diploid
+</th>
+<th style="text-align:left;">
+low
+</th>
+<th style="text-align:left;">
+mid
+</th>
+<th style="text-align:left;">
+high
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+G1
+</td>
+<td style="text-align:left;">
+28.66608
+</td>
+<td style="text-align:left;">
+57.33215
+</td>
+<td style="text-align:left;">
+7.166519
+</td>
+<td style="text-align:left;">
+42.99911
+</td>
+<td style="text-align:left;">
+85.99823
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+G2
+</td>
+<td style="text-align:left;">
+28.66608
+</td>
+<td style="text-align:left;">
+57.33215
+</td>
+<td style="text-align:left;">
+7.166519
+</td>
+<td style="text-align:left;">
+42.99911
+</td>
+<td style="text-align:left;">
+85.99823
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+G3
+</td>
+<td style="text-align:left;">
+28.66607
+</td>
+<td style="text-align:left;">
+57.33215
+</td>
+<td style="text-align:left;">
+7.166518
+</td>
+<td style="text-align:left;">
+42.99911
+</td>
+<td style="text-align:left;">
+85.99822
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+G4
+</td>
+<td style="text-align:left;">
+28.66607
+</td>
+<td style="text-align:left;">
+57.33215
+</td>
+<td style="text-align:left;">
+7.166518
+</td>
+<td style="text-align:left;">
+42.99911
+</td>
+<td style="text-align:left;">
+85.99822
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+G5
+</td>
+<td style="text-align:left;">
+28.66607
+</td>
+<td style="text-align:left;">
+57.33215
+</td>
+<td style="text-align:left;">
+7.166518
+</td>
+<td style="text-align:left;">
+42.99911
+</td>
+<td style="text-align:left;">
+85.99822
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+G6
+</td>
+<td style="text-align:left;">
+28.66609
+</td>
+<td style="text-align:left;">
+57.33218
+</td>
+<td style="text-align:left;">
+7.166523
+</td>
+<td style="text-align:left;">
+42.99914
+</td>
+<td style="text-align:left;">
+85.99827
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+G7
+</td>
+<td style="text-align:left;">
+28.66609
+</td>
+<td style="text-align:left;">
+57.33218
+</td>
+<td style="text-align:left;">
+7.166523
+</td>
+<td style="text-align:left;">
+42.99914
+</td>
+<td style="text-align:left;">
+85.99827
+</td>
+</tr>
+</tbody>
+</table>
 </div>
 <div id="load-and-integrate-kmer-frequency-data" class="section level2" number="2.3">
 <h2 number="2.3"><span class="header-section-number">2.3</span> Load and integrate kmer frequency data</h2>
 </div>
-</div>
-<div id="processing" class="section level1" number="3">
-<h1 number="3"><span class="header-section-number">3</span> Processing</h1>
-<div id="load-hist-tables" class="section level2" number="3.1">
-<h2 number="3.1"><span class="header-section-number">3.1</span> Load hist tables</h2>
+<div id="load-hist-tables" class="section level2" number="2.4">
+<h2 number="2.4"><span class="header-section-number">2.4</span> Load hist tables</h2>
 <p>Generate <code>Table1</code> from the hist files.</p>
-<pre><code>## [Fri Nov  3 17:02:00 2023] #LOAD 41241 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.0.hifiasm.merqury.LutQuin_218497_OG10G.v230216hi2.0.hifiasm.spectra-cn.hist
-## Calculating peak kmer frequency for ploidy...
-## [Fri Nov  3 17:02:00 2023] Peak kmer frequency: 57.3321518930426
-## [Fri Nov  3 17:02:01 2023] #LOAD 41241 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.1.pafscaff.merqury.LutQuin_218497_OG10G.v230216hi2.1.pafscaff.spectra-cn.hist
-## Calculating peak kmer frequency for ploidy...
-## [Fri Nov  3 17:02:01 2023] Peak kmer frequency: 57.3321518930426
-## [Fri Nov  3 17:02:01 2023] #LOAD 43713 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.2.diploidocus.merqury.LutQuin_218497_OG10G.v230216hi2.2.diploidocus.spectra-cn.hist
-## Calculating peak kmer frequency for ploidy...
-## [Fri Nov  3 17:02:01 2023] Peak kmer frequency: 57.3321462939761
-## [Fri Nov  3 17:02:01 2023] #LOAD 43713 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.3.ragtag.merqury.LutQuin_218497_OG10G.v230216hi2.3.ragtag.spectra-cn.hist
-## Calculating peak kmer frequency for ploidy...
-## [Fri Nov  3 17:02:02 2023] Peak kmer frequency: 57.3321462939761
-## [Fri Nov  3 17:02:02 2023] #LOAD 43713 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.4.tweak.merqury.LutQuin_218497_OG10G.v230216hi2.4.tweak.spectra-cn.hist
-## Calculating peak kmer frequency for ploidy...
-## [Fri Nov  3 17:02:02 2023] Peak kmer frequency: 57.3321462939761
-## [Fri Nov  3 17:02:02 2023] #LOAD 44265 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.5.hypo.merqury.LutQuin_218497_OG10G.v230216hi2.5.hypo.spectra-cn.hist
-## Calculating peak kmer frequency for ploidy...
-## [Fri Nov  3 17:02:02 2023] Peak kmer frequency: 57.3321829978484
-## [Fri Nov  3 17:02:02 2023] #LOAD 44302 delim data rows loaded from merqury/LutQuin_218497_OG10G.v230216hi2.6.tidy2.merqury.LutQuin_218497_OG10G.v230216hi2.6.tidy2.spectra-cn.hist
-## Calculating peak kmer frequency for ploidy...
-## [Fri Nov  3 17:02:02 2023] Peak kmer frequency: 57.3321823757709</code></pre>
 <table class="table table-striped" style="width: auto !important; margin-left: auto; margin-right: auto;">
 <caption>
 Ploidy boundaries.
@@ -1150,16 +1399,19 @@ G7
 </tr>
 </tbody>
 </table>
-<div id="reference-normalised-scores" class="section level3" number="3.1.1">
-<h3 number="3.1.1"><span class="header-section-number">3.1.1</span> Reference-normalised scores</h3>
+</div>
+</div>
+<div id="processing" class="section level1" number="3">
+<h1 number="3"><span class="header-section-number">3</span> Processing</h1>
+<div id="reference-normalised-scores" class="section level3" number="3.0.1">
+<h3 number="3.0.1"><span class="header-section-number">3.0.1</span> Reference-normalised scores</h3>
 <p>Generate <code>Table2</code> from <code>Table1</code>, with all values relative to reference.</p>
 <p>At this point, we have two “wide” tables of the kmer counts for each genome that belong to different assembly (<code>afreq</code>) and raw (<code>rfreq</code>) frequency classes. <code>Table1</code> has absolute values, whilst <code>Table2</code> has values relative to the reference.</p>
 </div>
-<div id="classification-table" class="section level3" number="3.1.2">
-<h3 number="3.1.2"><span class="header-section-number">3.1.2</span> Classification table</h3>
+<div id="classification-table" class="section level3" number="3.0.2">
+<h3 number="3.0.2"><span class="header-section-number">3.0.2</span> Classification table</h3>
 <p>Generate <code>Table3</code>. This is a “long” version of Table 1, with the addition of a <code>knum</code> field. <code>afreq</code> and <code>rfreq</code> are then converted to the categories based on <code>afreq</code> and ploidy. Assembly-only kmers are arbitrarily given haploid or diploid kmer frequencies for the purposes of calculating the total kmer percentage for these categories.</p>
 <p><code>Table3</code> should now have haploid- and diploid-specific ratings.</p>
-</div>
 </div>
 </div>
 <div id="results" class="section level1" number="4">

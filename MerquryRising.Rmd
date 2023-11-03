@@ -60,7 +60,7 @@ knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE
 #?# I wonder if this is the solution for HTML output within loops?
 
 #i# Set defaults for the Rmd implementation that might be different from the standalone version
-override <- c('fullrun=FALSE','rdir=.','debug=FALSE','dev=TRUE')
+override <- c('fullrun=FALSE','rdir=.','debug=TRUE','dev=TRUE')
 source('./merquryrising.R')
 ```
 
@@ -103,7 +103,8 @@ _Add table of class and purge descriptions._
 
 ```{r dipkmerclasses}
 #i# Definition now part of the merquryrising.R script.
-kable(kclassdb, "html", caption = "MerquryRising Kmer frequency classes.", align = "c") %>% kable_styling("striped", full_width = F)
+kclassdb <- D$kclassdb
+kable(D$kclassdb, "html", caption = "MerquryRising Kmer frequency classes.", align = "c") %>% kable_styling("striped", full_width = F)
 ```
 
 
@@ -122,6 +123,7 @@ The following input files and assemblies have been recognised for this run:
 ```{r set_files}
 #i# Creation is now handled in the R script.
 # adb <- setInputFiles()
+adb <- D$adb
 #i# Summarise the input data table
 if(settings$debug){
   kable(adb, "html", caption = "Input genome assemblies and QV/completeness stats.", align = "l") %>% kable_styling("striped", full_width = F)  
@@ -153,19 +155,17 @@ When `*.hist` files are used (assembly-specific or general), the diploid peak is
 ```{r load_ploidy}
 #i# Optional loading of the ploidy file or generic ploidy boundaries are now handled in the main R script.
 
-if(nrow(ploidy) > 0){
-  kable(ploidy, "html", caption = "Ploidy boundaries for all assemblies, loaded from ploidy file.", align = "l") %>% kable_styling("striped", full_width = F)
+if(nrow(D$ploidy) > 0){
+  kable(D$ploidy, "html", caption = "Ploidy boundaries for all assemblies, loaded from ploidy file.", align = "l") %>% kable_styling("striped", full_width = F)
 }
-if(nrow(boundary) > 0){
-  kable(boundary, "html", caption = "Ploidy boundaries for all assemblies.", align = "l") %>% kable_styling("striped", full_width = F)
+if(nrow(D$boundary) > 0){
+  kable(D$boundary, "html", caption = "Ploidy boundaries for all assemblies.", align = "l") %>% kable_styling("striped", full_width = F)
 }
 ```
 
 ## Load and integrate kmer frequency data
 
 
-
-# Processing
 
 
 
@@ -178,45 +178,25 @@ Generate `Table1` from the hist files.
 
 ```{r loadhist}
 # - Load the `*.spectra-cn.hist` data tables into tibbles with 3 fields: `afreq` (kmer frequency in assembly), `rfreq` (kmer frequency in reads) and `knum` (number of different kmers).
-D <- list()
-Tab1 <- tibble()
-for(G in adb$G){
-  filename <- paste0(settings$merqurydir,"/",adb[adb$G==G,]$base,".spectra-cn.hist")
-  gdb <- loadTable(filename)
-  gdb <- gdb$data %>% rename(afreq=Copies,rfreq=kmer_multiplicity,knum=Count)
-  # - Convert the `read-only` kmers into `0`
-  gdb[gdb$afreq=="read-only",]$afreq <- 0
-  # - Convert the `>4` kmers into `5` and make sure all fields are integers.
-  gdb[gdb$afreq==">4",]$afreq <- 5
-  gdb$afreq <- as.integer(gdb$afreq)
-  # Add the assembly-only data
-  # - Add the `*.only.hist` data to each table.
-  filename <- paste0(settings$merqurydir,"/",adb[adb$G==G,]$base,".only.hist")
-  odb <- read.delim(filename,header=FALSE) %>% rename(afreq=V1,rfreq=V2,knum=V3)
-  D[[G]] <- bind_rows(odb,gdb)
-  # - Join all the count tables by `afreq` and `rfreq` to give a field per input file. (`G1` to `Gn`). [`Table1`]
-  gk <- D[[G]]
-  colnames(gk)[3] <- G
-  dipk <- densityDiploid(gdb,plot=FALSE)
-  boundary <- bind_rows(boundary,makeBoundary(dipk,G))
-  if(nrow(Tab1) > 0){
-    Tab1 <- full_join(Tab1, gk)
-  }else{
-    Tab1 <- gk
-    if(settings$diploid < 1){
-      settings$diploid <- dipk
-    }
-  }
-}
+Tab1 <- D$Tab1 #makeTab1()  #i# Main code moved to the Rscript.
+
+#!# This has broken the boundary table generation: need to fix
+# Put D within the function and then return D with D$Tab1 and D$boundary
+
 # Display boundaries loaded from the individual distributions
-if(nrow(boundary) > 0){
-  kable(boundary, "html", caption = "Ploidy boundaries.", align = "l") %>% kable_styling("striped", full_width = F)
+if(nrow(D$boundary) > 0){
+  kable(D$boundary, "html", caption = "Ploidy boundaries.", align = "l") %>% kable_styling("striped", full_width = F)
 }
 
-# - Fill out the NA values in Tab1 with zeros
-Tab1 <- Tab1 %>% mutate_all(~ replace(., is.na(.), 0))
+adb <- D$adb
+boundary <- D$boundary
+ploidy <- D$ploidy
+
 ```
 
+
+
+# Processing
 
 
 ### Reference-normalised scores
@@ -258,14 +238,6 @@ Generate `Table3`. This is a "long" version of Table 1, with the addition of a `
 #!# Update this to join with a boundaries table first to allow different boundaries per assembly, then do the ratings.
 #i# Convert into a ploidy table with G hap dip and high boundaries and fields
 
-
-# Temp ploidy
-if(nrow(ploidy) < 1){
-  bD <- makeBoundary(settings$diploid)
-  ploidy <- tibble(ploidy=c(0,1,2),
-                   depth=c(0,bD$haploid,bD$diploid),
-                   boundary=c(bD$low,bD$mid,bD$high))
-}
 
 
 # - Convert `Table1` into a long version [`Table3`] -> `knum` and `assembly`.
@@ -470,57 +442,7 @@ kable(Tab5 %>% mutate(percentage = num(percentage, digits = 2)) %>%
 
 
 ```{r merquryPlot}
-#i# Merqury code to standardise style.
-#i# Code based on: https://github.com/marbl/merqury/blob/master/plot/plot_spectra_cn.R
-gray = "black"
-red = "#E41A1C"
-blue = "#377EB8" # light blue = "#56B4E9"
-green = "#4DAF4A"
-purple = "#984EA3"  # purple = "#CC79A7"
-orange = "#FF7F00"  # orange = "#E69F00"
-yellow = "#FFFF33"
-
-merqury_col = c(gray, red, blue, green, purple, orange)
-merqury_brw <- function(dat, direction=1) {
-  merqury_colors=merqury_col[1:length(unique(dat))]
-  if (direction == -1) {
-    merqury_colors=rev(merqury_colors)
-  }
-  merqury_colors
-}
-
-ALPHA=0.4
-LINE_SIZE=0.3
-
-#i# Define a plotting function to make a merqury-style plot
-#># histTab should have three fields: afreq, rfreq, knum
-merquryPlot <- function(histTab,ytitle="kmer count shift",G="*"){
-  dipk <- settings$diploid * 1.5
-  if(G %in% boundary$G){
-    bD <- boundary %>% filter(G == !!G)
-  }else{
-    bD <- boundary %>% filter(G == "*")
-  }
-  dat <- histTab %>%
-    filter(rfreq < as.numeric(bD$high)*2,afreq < 5)
-  dat$afreq <- ordered(dat$afreq,levels=0:4)
-  ymin <- min(c(0,dat[dat$rfreq > 2,]$knum)) * 1.2
-  ymax <- max(c(10,dat[dat$rfreq > 2,]$knum)) * 1.2
-  # if(max(histTab$knum) > ymax){
-  #   histTab[histTab$knum > ymax,]$knum <- ymax
-  # }
-  p <- ggplot(dat, aes(x = rfreq, y = knum, color = afreq)) +
-    geom_vline(xintercept=c(bD$low,bD$mid,bD$high), color=merqury_col[1:3]) +
-    geom_vline(xintercept=c(bD$haploid,bD$diploid), linetype="dashed", color=merqury_col[2:3]) +
-    geom_line() +
-    geom_area(aes(fill = afreq), position = "identity", alpha = ALPHA) +
-    scale_color_manual(values = merqury_col) +
-    scale_fill_manual(values = merqury_col) +
-    ylim(ymin,ymax) + 
-    labs(x = "kmer frequency", y = ytitle, color = "afreq") +
-    theme_minimal()
-  
-}
+#i# This has been moved to the Rscript
 ```
 
 ## Comparative Merqury plots
