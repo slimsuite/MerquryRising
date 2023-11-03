@@ -15,13 +15,13 @@ output:
 
 # Introduction
 
-This RMarkdown is designed to be a standalone RMarkdown file that will read in a configuration file (`merquryrising.config`), consisting of tab-delimited pairs of `setting` and `value`, and then a bunch of Merqury output files.
+[MerquryRising](https://github.com/slimsuite/MerquryRising) is a standalone RMarkdown file for parsing outputs from [Merqury](https://github.com/marbl/merqury) and generating some additional plots to help assess the requirements and/or consequences of duplicate purging in genome assemblies. Please see the accompanying <Tutorial.html> for additional information about the rationale behind the program and its features. The GitHub README will also contain some information about running the script. If you are not getting the outputs you expect, please check or update the `merquryrising.config` configuration file, consisting of tab-delimited pairs of `setting` and `value`. 
 
 The Merqury files needed are:
 
-* Read kmer `*.hist.ploidy` file.
-* A set of `*.only.hist` files of assembly-only kmer counts.
 * A set of `*.spectra-cn.hist` files of read and assembly kmer counts.
+* A corresponding set of `*.only.hist` files of assembly-only kmer counts.
+* An optional read kmer `*.hist.ploidy` file given with `ploidyfile=FILE`.
 
 If no input file names are provided, `MerquryRising` will look for files in a `merqury` directory and use the first `*.hist.ploidy` file it finds for the ploidy setting. It will then process all `*.only.hist` files in the directory.
 
@@ -49,9 +49,6 @@ library(tools)
 
 ```{r rmd, echo=FALSE, warning=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE)
-#!# Continue setting results='asis' to avoid wrapping in ```.
-#?# I wonder if this is the solution for HTML output within loops?
-
 # HISTORY
 # v0.1.0 - Initial draft version
 # v0.2.0 - Added config file to settings
@@ -62,8 +59,27 @@ knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE
 # [ ] : Add output of tables to a tables/ directory, and plots to a plots/ directory?
 # [ ] : Partition information between function script (this one) and the Tutorial.Rmd
 # [ ] : Rationalise the use of sig fig or dp?
+# [ ] : Consider adding direct parsing of the diploid mode output to generate a diploid report. This is a bit tricky though as it does not have the duplications, so maybe haploids versus a separate diploid is better? (Could use the diploid as the reference?)
+# [ ] : Add an option to use a density function to calculate the ploidy boundaries rather than the ploidy file. (Needed for multiple different data types.)
+# [ ] : Generate a simplified version that processes all the "*.spectra-cn.hist" files and generates the classification tables and plots only.
+# [ ] : Scale the plot height according to numbers of assemblies. 
+# [ ] : Add a simple version of the Rscript that takes a single hist file as an argument and generates tables and plots. (For now, run the whole thing but with one input!)
+# [ ] : Document a simple use-case of providing a pair of assemblies.
+# [ ] : Expand the reference selection to enable loading of a file that sets the references: assembly reference (based on the labels)
+# [ ] : HARD: Replace simple boundaries with fitted distributions.
+# [ ] : Update to process the diploid ASM data with the haplotype-specific and shared kmers.
+
+# NOTES
+#!# Consider setting results='asis' to avoid wrapping in ```.
+#?# I wonder if this is the solution for HTML output within loops?
+
+#i# Set defaults for the Rmd implementation that might be different from the standalone version
+override <- c('fullrun=FALSE')
+source('./merquryrising.R')
+```
 
 
+```{r dump1, eval=FALSE, include=FALSE}
 # Load libraries
 library(tidyverse)
 library(ggridges)
@@ -80,18 +96,20 @@ library(tools)
 #!# Need a better way of setting rdir
 settings = list(basefile="merquryrising",   # Prefix for output files (log and plots)
                 config="merquryrising.config",   # Name of the config file
-                boundary="calculate",       # Whether to load or calculate boundaries
+                boundary="calculate",       # Whether to load or calculate boundaries 
                 merqurydir="merqury",       # Directory containing merqury output files for processing
                 histfiles="*.spectra-cn.hist",   # list.files() pattern match for input files
                 histsort=FALSE,             # Optional re-ordering of input files (comma separated list)
                 labels="merquryrising.fofn",     # FOFN with labels mapping on to histfiles
                 ploidy="default",           # Ploidy of the assembly (hap/dip). If default/parse, will look for a "dip" suffix in the assembly name.
                 ploidyfile="default",       # Name of the ploidy file. If default" will use the first *.ploidy file
+                diploid=0,                  # The diploid kmer frequency. If -1 will load from ploidy table if present.
                 only=TRUE,                  # Whether to add extra kmers to represent the assembly-only fraction
                 makexlsx=FALSE,             # Make TRUE to generate compiled Excel file
                 outlog=stdout(),            # Change to filename for log output.
                 rdir="~/Library/CloudStorage/OneDrive-TheUniversityofWesternAustralia/github/SLiMSuiteDev/libraries/r",
                 pngwidth=1200,pngheight=900,pointsize=24,
+                pdfwidth=40,pdfheight=0,pdfscale=1,namesize=1,labelsize=1,labels=TRUE,
                 reference="default")        # Reference dataset for pairwise comparisons
 if(! file.exists(settings$config)){
   cfg <- tibble(Setting=names(settings),Value = unlist(settings)) %>%
@@ -101,7 +119,7 @@ if(! file.exists(settings$config)){
   cfg <- read_csv(settings$config,col_names = FALSE)
   colnames(cfg) <- c("Setting","Value")
   rownames(cfg) <- cfg$Setting
-  for(arg in c("basefile","merqurydir","histfiles","histsort","ploidy","ploidyfile","outlog","rdir","reference","labels")){
+  for(arg in c("basefile","merqurydir","histfiles","histsort","ploidy","ploidyfile","outlog","rdir","reference","labels","diploid")){
     if(arg %in% rownames(cfg)){
       settings[[arg]] <- cfg[arg,]$Value
     }
@@ -124,11 +142,9 @@ for(cmd in c("histsort")){
 
 ```
 
-**NOTE:** Reading from `merquryrising.config` is not yet implemented.
 
-**NOTE:** Once implemented, the config file should at least contain the R directory pointing to the `MerquryRising` github.
 
-```{r functions}
+```{r functions, eval=FALSE, include=FALSE}
 #i# logWrite() will prefix a sentence with the current date and time before writing to STDOUT
 logWrite <- function(logstr){
   writeLines(paste0("[",date(),"] ",logstr),con=settings$outlog)
@@ -179,9 +195,9 @@ The general `MerquryRising` workflow is as follows:
 
 **QUESTION:** Should this be a separate run mode for all the assemblies, or should we parse "dip" from the hist name (ploidy=parse)? Check what merqury does if you give it two assemblies and it generates three outputs - so far, the data has been generated from separate runs.
 
-**NOTE:** At present, it is much easier to make everything match either haploid or diploid, rather than have a mixture of both.
 
-```{r hapkmerclasses}
+
+```{r hapkmerclasses, eval=FALSE, include=FALSE}
 #i# Create the table of kmer classes
 kclassdb <- tibble(afreq=c("1","2+","0","1","2+","0","1","2+","0","1","2+","0","1","2+"),
                    rfreq=c("none","none","low","low","low","hap","hap","hap","dip","dip","dip","high","high","high"),
@@ -262,6 +278,8 @@ kable(adb %>% select(label,name,qv,completeness) %>% rename(assembly=label),
 
 ### Ploidy boundaries
 
+**NOTE:* This needs to be moved to AFTER the tables are loaded, so ploidy can be calculated from the hist files directly.
+
 The classification percentages are ultimately defined by the ploidy boundaries, which for now are set by the `*.ploidy` file in the input merqury file directory. This is definitely a place with room for improvement, so please get in touch if you have any ideas or suggestions!
 
 The original iterations of this script used the `boundary` values loaded from the file, but these appear to be quite conservative and result in a lot of kmers being rated as over- or under-purged based on the merqury plots themselves, with a lot of the main distributions broader than the values loaded. They have therefore been replaced with:
@@ -278,13 +296,45 @@ if(file.exists(settings$ploidyfile)){
 }
 logWrite(paste('Using ploidy file',ploidyfile,'to set boundaries.'))
 ploidy <- read.delim(paste0(settings$merqurydir,'/',ploidyfile))
+settings$diploid <- ploidy$depth[3]
 if(settings$boundary == "calculate"){
   ploidy$boundary[1] <- max(5, 0.25 * ploidy$depth[2])
-  ploidy$boundary[2] <- (ploidy$depth[2] + ploidy$depth[3]) / 2
-  ploidy$boundary[3] <- 1.5 * ploidy$depth[3]
+  ploidy$boundary[2] <- (ploidy$depth[2] + settings$diploid) / 2
+  ploidy$boundary[3] <- 1.5 * settings$diploid
 }
 kable(ploidy, "html", caption = "Ploidy boundaries.", align = "l") %>% kable_styling("striped", full_width = F)
 
+#i# Define a function to calculate the diploid kmer frequency from a kmer table.
+#i# This will be the basis for being able to process assemblies with different data sources.
+#i# This could even open up the possibility of comparing different sequencing datasets for the same assembly.
+getmode <- function(v) {
+  uniqv <- unique(v)
+  return(uniqv[which.max(tabulate(match(v, uniqv)))])
+}
+#i# kmerTab needs rfreq and knum fields
+densityDiploid <- function(kmerTab,minfreq=5,maxfreq=1000,adjust=1){
+  writeLines("Calculating peak kmer frequency for ploidy...")
+  kdb <- kmerTab %>% filter(rfreq >= minfreq,rfreq <= maxfreq)
+  while(sum(kdb$knum) > 1e6){
+    kdb$knum <- as.integer(kdb$knum/10)
+  }
+  kvec <- rep(kdb$rfreq,kdb$knum)
+  #centre = getmode(kvec)
+  n = 2048
+  while(max(kvec)*5 > n){
+    n = n * 2
+  }
+  kdens = density(kvec,n=n) #,adjust=adjust)
+  kdiploid <- kdens$x[kdens$y == max(kdens$y)]
+  khaploid <- kdiploid / 2
+  logWrite(paste("Peak kmer frequency:",kdiploid))
+  plot(kdens,xlim=c(0,kdiploid*2))
+  abline(v=kdiploid,col="blue")
+  abline(v=khaploid,col="red")
+  abline(v=ploidy$depth[2],col="black")
+  return(kdiploid)
+}
+#kdip <- densityDiploid(gdb)
 ```
 
 ### Load hist tables
@@ -316,6 +366,7 @@ for(G in adb$G){
     Tab1 <- full_join(Tab1, gk)
   }else{
     Tab1 <- gk
+    settings$diploid <- densityDiploid(gdb)
   }
 }
 # - Fill out the NA values in Tab1 with zeros
@@ -527,6 +578,11 @@ kable(Tab5 %>% mutate(percentage = num(percentage, digits = 2)) %>%
   rename(assembly=G), "html", caption = "Purge classifiers.", align = "l") %>% kable_styling("striped", full_width = F)
 
 
+# [ ] Save to PDF
+# pdfwidth <- settings$pdfwidth
+# pdfheight <- 1 + 2*length(settings$order)
+
+
 #!# Add the "only" numbers
 
 #Q# How should the only kmers be handled? Nominally, each assembly-only kmer should be present at the diploid read depth?
@@ -573,21 +629,25 @@ LINE_SIZE=0.3
 
 #i# Define a plotting function to make a merqury-style plot
 #># histTab should have three fields: afreq, rfreq, knum
-merquryPlot <- function(histTab){
+merquryPlot <- function(histTab,ytitle="kmer count shift"){
   dat <- dat %>%
     filter(rfreq < ploidy[3,3]*2,afreq < 5)
   dat$afreq <- ordered(dat$afreq,levels=0:4)
-  ymin <- min(dat[dat$rfreq > 3,]$knum) * 2
-  ymax <- max(dat[dat$rfreq > 3,]$knum) * 2
+  ymin <- min(c(0,dat[dat$rfreq > 2,]$knum)) * 1.2
+  ymax <- max(c(10,dat[dat$rfreq > 2,]$knum)) * 1.2
+  # if(max(histTab$knum) > ymax){
+  #   histTab[histTab$knum > ymax,]$knum <- ymax
+  # }
   p <- ggplot(dat, aes(x = rfreq, y = knum, color = afreq)) +
     geom_vline(xintercept=ploidy$boundary, color=merqury_col[1:3]) +
+    geom_vline(xintercept=settings$diploid, color="grey") +
     geom_vline(xintercept=ploidy$depth[2:3], linetype="dashed", color=merqury_col[2:3]) +
     geom_line() +
     geom_area(aes(fill = afreq), position = "identity", alpha = ALPHA) +
     scale_color_manual(values = merqury_col) +
     scale_fill_manual(values = merqury_col) +
     ylim(ymin,ymax) + 
-    labs(x = "kmer frequency", y = "kmer count shift", color = "afreq") +
+    labs(x = "kmer frequency", y = ytitle, color = "afreq") +
     theme_minimal()
   
 }
@@ -595,13 +655,14 @@ merquryPlot <- function(histTab){
 
 ## Comparative Merqury plots
 
-These plots have been converted into relative values compared to the reference assembly.
+These plots have been converted into relative values compared to the reference assembly. The reference assembly will have the full Merqury plot. Note that the read-only kmers (`afreq`=0) may be truncated.
 
 ```{r plotsVsRef, results='asis'}
 
 for(i in 1:nrow(adb)){
   pref = FALSE
   pTab <- Tab2
+  ytitle <- "kmer count shift" 
   if(settings$reference == "default"){
     if(i < 2){
       pref <- TRUE
@@ -615,11 +676,12 @@ for(i in 1:nrow(adb)){
     refname <- settings$reference
   }
   if(pref){
-    pTab <- Tab1
+    pTab <- Tab1 #%>% filter(rfreq > 1)
+    ytitle <- "No. distinct kmers"
   }
   G <- adb$G[i]
   dat <- pTab %>% rename(knum=!!G) %>% select(afreq,rfreq,knum)
-  p <- merquryPlot(dat)
+  p <- merquryPlot(dat,ytitle)
   cat(paste('###',adb$name[i],'\n\n'))
   
   print(kable(adb[i,], "html", caption = adb$name[i], align = "l") %>% kable_styling("striped", full_width = F))

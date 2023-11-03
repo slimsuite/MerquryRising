@@ -33,6 +33,36 @@ If no input file names are provided, `MerquryRising` will look for files in a `m
 1. Default mode will compare each kmer histogram with the preceding one.
 2. Reference mode will compare every kmer histogram with the same reference. (Either named, else the first file.)
 
+
+
+## Contents of the Introduction
+
+```{r contents, echo=FALSE}
+# Genome assembly assessment criteria
+# Kmers
+# Kmer distributions (e.g. GenomeScope)
+# Merqury plots and statistics
+
+# Input files for MerquryRising
+# Setting ploidy boundaries
+# Annotated Merqury Plot with the different features annotated and what they represent
+# Categorisation of different kmer groups based on rfreq and afreq
+# Translation into errors, under-purging, over-purging, good sequences and repeats 
+
+# For the main categories, inlcude a ## How does MerquryRising do this section
+
+# Plots showing different elements in a Merqury plot [Might need the GenomeScope plot for the repeats?]
+# Examples of good and bad assemblies
+# Example of haploids and corresponding diploid
+# Try the OG88 alt/pri and hap1/hap2 for this
+# MerquryRising workflow [optional]
+# MerquryRising class plot (which kind is most useful?)
+# MerquryRising category plot
+# MerquryRising difference plot
+```
+
+
+
 ## R libraries
 
 `MerquryRising` makes use of the following libraries:
@@ -52,16 +82,33 @@ library(tools)
 
 ```{r rmd, echo=FALSE, warning=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE)
-#!# Continue setting results='asis' to avoid wrapping in ```.
-#?# I wonder if this is the solution for HTML output within loops?
-
 # HISTORY
 # v0.1.0 - Initial draft version
 # v0.2.0 - Added config file to settings
 
 # TO DO
-# [ ] : Implement reading of setting from merquryrising.config.
-# [ ] : Need to add aliases for the input files, as these are often very long!
+# [Y] : Implement reading of setting from merquryrising.config.
+# [Y] : Need to add aliases for the input files, as these are often very long!
+# [ ] : Add output of tables to a tables/ directory, and plots to a plots/ directory?
+# [ ] : Partition information between function script (this one) and the Tutorial.Rmd
+# [ ] : Rationalise the use of sig fig or dp?
+# [ ] : Consider adding direct parsing of the diploid mode output to generate a diploid report. This is a bit tricky though as it does not have the duplications, so maybe haploids versus a separate diploid is better? (Could use the diploid as the reference?)
+# [ ] : Add an option to use a density function to calculate the ploidy boundaries rather than the ploidy file. (Needed for multiple different data types.)
+# [ ] : Generate a simplified version that processes all the "*.spectra-cn.hist" files and generates the classification tables and plots only.
+# [ ] : Scale the plot height according to numbers of assemblies. 
+# [ ] : Add a simple version of the Rscript that takes a single hist file as an argument and generates tables and plots. (For now, run the whole thing but with one input!)
+# [ ] : Document a simple use-case of providing a pair of assemblies.
+# [ ] : Expand the reference selection to enable loading of a file that sets the references: assembly reference (based on the labels)
+# [ ] : HARD: Replace simple boundaries with fitted distributions.
+
+# NOTES
+#!# Consider setting results='asis' to avoid wrapping in ```.
+#?# I wonder if this is the solution for HTML output within loops?
+
+#i# Set defaults for the Rmd implementation that might be different from the standalone version
+override <- c('fullrun=FALSE')
+source('./merquryrising.R')
+
 
 # Load libraries
 library(tidyverse)
@@ -79,18 +126,20 @@ library(tools)
 #!# Need a better way of setting rdir
 settings = list(basefile="merquryrising",   # Prefix for output files (log and plots)
                 config="merquryrising.config",   # Name of the config file
-                boundary="calculate",       # Whether to load or calculate boundaries
+                boundary="calculate",       # Whether to load or calculate boundaries 
                 merqurydir="merqury",       # Directory containing merqury output files for processing
                 histfiles="*.spectra-cn.hist",   # list.files() pattern match for input files
                 histsort=FALSE,             # Optional re-ordering of input files (comma separated list)
                 labels="merquryrising.fofn",     # FOFN with labels mapping on to histfiles
                 ploidy="default",           # Ploidy of the assembly (hap/dip). If default/parse, will look for a "dip" suffix in the assembly name.
                 ploidyfile="default",       # Name of the ploidy file. If default" will use the first *.ploidy file
+                diploid=0,                  # The diploid kmer frequency. If -1 will load from ploidy table if present.
                 only=TRUE,                  # Whether to add extra kmers to represent the assembly-only fraction
                 makexlsx=FALSE,             # Make TRUE to generate compiled Excel file
                 outlog=stdout(),            # Change to filename for log output.
                 rdir="~/Library/CloudStorage/OneDrive-TheUniversityofWesternAustralia/github/SLiMSuiteDev/libraries/r",
                 pngwidth=1200,pngheight=900,pointsize=24,
+                pdfwidth=40,pdfheight=0,pdfscale=1,namesize=1,labelsize=1
                 reference="default")        # Reference dataset for pairwise comparisons
 if(! file.exists(settings$config)){
   cfg <- tibble(Setting=names(settings),Value = unlist(settings)) %>%
@@ -100,7 +149,7 @@ if(! file.exists(settings$config)){
   cfg <- read_csv(settings$config,col_names = FALSE)
   colnames(cfg) <- c("Setting","Value")
   rownames(cfg) <- cfg$Setting
-  for(arg in c("basefile","merqurydir","histfiles","histsort","ploidy","ploidyfile","outlog","rdir","reference","labels")){
+  for(arg in c("basefile","merqurydir","histfiles","histsort","ploidy","ploidyfile","outlog","rdir","reference","labels","diploid")){
     if(arg %in% rownames(cfg)){
       settings[[arg]] <- cfg[arg,]$Value
     }
@@ -178,29 +227,15 @@ The general `MerquryRising` workflow is as follows:
 
 **QUESTION:** Should this be a separate run mode for all the assemblies, or should we parse "dip" from the hist name (ploidy=parse)? Check what merqury does if you give it two assemblies and it generates three outputs - so far, the data has been generated from separate runs.
 
-**NOTE:** At present, it is much easier to make everything match either haploid or diploid, rather than have a mixture of both.
-
-```{r hapkmerclasses}
-#i# Create the table of kmer classes
-kclassdb <- tibble(afreq=c("1","2+","0","1","2+","0","1","2+","0","1","2+","0","1","2+"),
-                   rfreq=c("none","none","low","low","low","hap","hap","hap","dip","dip","dip","high","high","high"),
-                   class=c("only","only","noise","lowQ","lowQ","alternate","haploid","duplicate","missing","diploid","duplicate","missing","collapsed","repeats"),
-                   purge=c("only","only","n/a","under","under","good","good","under","over","good","under","over","over","good"))
-#!# Add dipclass and dippurge here. Need to expand to 2 and 3+ for this #!#
-
-kable(kclassdb, "html", caption = "MerquryRising Kmer frequency classes.", align = "c") %>% kable_styling("striped", full_width = F)
-
-#Q# Can/should we convert the Under/Good/Over into single percentages and report? Report the different between assemblies?
-```
 
 ```{r dipkmerclasses}
 #i# Create the table of kmer classes
 kclassdb <- tibble(afreq=c("1","2","3+", "0","1","2","3+", "0","1","2","3+", "0","1","2","3+", "0","1","2","3+"),
                    rfreq=c("none","none","none", "low","low","low","low", "hap","hap","hap","hap", "dip","dip","dip","dip", "high","high","high","high"),
-                   class=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","diploid","duplicate","duplicate", "missing","collapsed","collapsed","repeats"),
-                   purge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","good","under","under", "over","over","over","neutral"),
-                   dipclass=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","haploid","diploid","duplicate", "missing","collapsed","collapsed","repeats"),
-                   dippurge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","over","good","under", "over","over","over","neutral")
+                   class=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","diploid","duplicate","duplicate", "missing","collapsed","repeats","repeats"),
+                   purge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","good","under","under", "over","over","neutral","neutral"),
+                   dipclass=c("only","only","only", "noise","lowQ","lowQ","lowQ", "missing","haploid","duplicate","duplicate", "missing","haploid","diploid","duplicate", "missing","collapsed","collapsed","repeats"),
+                   dippurge=c("only","only","only", "n/a","under","under","under", "over","good","under","under", "over","over","good","under", "over","over","over","neutral")
                    )
 #!# Add dipclass and dippurge here. Need to expand to 2 and 3+ for this #!#
 

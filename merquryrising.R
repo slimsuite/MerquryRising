@@ -1,0 +1,209 @@
+########################################################
+### Merqury Rising: Kmer-based QV Assessment   ~~~~~ ###
+### VERSION: 0.2.0                             ~~~~~ ###
+### LAST EDIT: 02/11/23                        ~~~~~ ###
+### AUTHORS: Richard Edwards 2023              ~~~~~ ###
+### CONTACT: rich.edwards@uwa.edu.au           ~~~~~ ###
+########################################################
+
+# This script is for parsing outputs from and generating some additional plots to help assess the requirements and/or consequences of duplicate purging in genome assemblies.
+
+####################################### ::: HISTORY ::: ############################################
+# v0.2.0 : Initial version, numbered to mirror the corresponding Rmd file.
+version = "v0.2.0"
+
+####################################### ::: USAGE ::: ############################################
+# Example use:
+# Rscript merquryrising.R [config=FILE]
+# See main MerquryRising GitHub documentation for options.
+
+#i# Python code:
+# slimsuitepath = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)),'../')) + os.path.sep
+# rdir = '%slibraries/r/' % slimsuitepath
+# os.popen('Rscript {0}chromsyn.R {1}'.format(rdir, optionstr)).readlines()
+
+#i# Usage within R:
+# Set an override vector of commandline arguments: this will replace argvec read from the commandline
+# Use source() to run the script:
+# source("$PATH/merquryrising.R")
+
+####################################### ::: OUTPUTS ::: ############################################
+#!# List the outputs here
+
+####################################### ::: TODO ::: ############################################
+#i# See the accompanying RMarkdown for a more complete list of planned upgrades.
+# [ ] : Generate a working draft of this script based on the RMarkdown
+# [ ] : Check all arguments are processed correctly.
+# [ ] : Complete full parsing of the config file.
+# [ ] : Make sure it can be run from the RMarkdown just to load the functions etc. without processing.
+# [ ] : Check and rationalise libraries.
+
+####################################### ::: SETUP ::: ############################################
+### ~ Load packages ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+if(! "tidyverse" %in% installed.packages()[,"Package"]){
+  install.packages("tidyverse")
+}
+# if(! "ggstatsplot" %in% installed.packages()[,"Package"]){
+#   install.packages("ggstatsplot")
+# }
+library(tidyverse)
+library(ggridges)
+library(GGally)
+library(grDevices)
+library(RColorBrewer)
+#library(ggstatsplot)
+library(writexl)
+library(kableExtra)
+library(tools)
+
+### ~ Commandline arguments ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+defaults = list(basefile="merquryrising",   # Prefix for output files (log and plots)
+                config="merquryrising.config",   # Name of the config file
+                boundary="calculate",       # Whether to load or calculate boundaries
+                merqurydir="merqury",       # Directory containing merqury output files for processing
+                histfiles="*.spectra-cn.hist",   # list.files() pattern match for input files
+                histsort=FALSE,             # Optional re-ordering of input files (comma separated list)
+                labels="merquryrising.fofn",     # FOFN with labels mapping on to histfiles
+                ploidy="default",           # Ploidy of the assembly (hap/dip). If default/parse, will look for a "dip" suffix in the assembly name.
+                ploidyfile="default",       # Name of the ploidy file. If default" will use the first *.ploidy file
+                diploid=0,                  # The diploid kmer frequency. If -1 will load from ploidy table if present.
+                only=TRUE,                  # Whether to add extra kmers to represent the assembly-only fraction
+                makexlsx=FALSE,             # Make TRUE to generate compiled Excel file
+                outlog=stdout(),            # Change to filename for log output.
+                pngwidth=1200,pngheight=900,pointsize=24,
+                pdfwidth=40,pdfheight=0,pdfscale=1,namesize=1,labelsize=1,
+                reference="default",
+                rscript=TRUE,debug=FALSE,dev=FALSE,fullrun=TRUE,tutorial=FALSE,
+                rdir="",
+                outlog=stdout())
+
+#i# Setup settings list from defaults and commandline options.
+settings <- defaults
+argvec = commandArgs(TRUE)
+if("override" %in% ls()){
+  argvec = override
+  settings$rscript = FALSE
+}
+for(cmd in argvec){
+  cmdv = strsplit(cmd,'=',TRUE)[[1]]
+  if(length(cmdv) > 1){
+    settings[[cmdv[1]]] = cmdv[2]
+  }else{
+    settings[[cmdv[1]]] = ""    
+  }
+}
+
+### ~ MerquryRising Configuration File ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+#i# Load the config file
+if(! file.exists(settings$config)){
+  cfg <- tibble(Setting=names(settings),Value = unlist(settings)) %>%
+    filter(Setting != "outlog")
+  write_csv(cfg,settings$config,col_names = FALSE)
+}else{
+  cfg <- read_csv(settings$config,col_names = FALSE)
+  colnames(cfg) <- c("Setting","Value")
+  rownames(cfg) <- cfg$Setting
+  for(arg in rownames(cfg)){
+    settings[[arg]] <- cfg[arg,]$Value
+  }
+}
+
+### ~ Parameter Conversion ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+#i# integer parameters
+for(cmd in c("pngwidth","pngheight","pointsize","pngscale")){
+  settings[[cmd]] = as.integer(settings[[cmd]])
+}
+#i# other numeric parameter
+for(cmd in c("pdfwidth","pdfheight","pdfscale","namesize","labelsize","diploid")){
+  settings[[cmd]] = as.numeric(settings[[cmd]])
+}
+#i# list parameters
+for(cmd in c("histsort")){
+  if(sum(grep(",",settings[[cmd]],fixed=TRUE)) > 0){
+    settings[[cmd]] = strsplit(settings[[cmd]],',',TRUE)[[1]]
+  }else{
+    settings[[cmd]] <- defaults[[cmd]]
+  }
+}
+#i# logical parameters
+for(cmd in c("debug","dev","fullrun","tutorial")){
+  settings[[cmd]] = as.logical(settings[[cmd]])
+}
+
+#i# Set warnings based on debug
+oldwarn <- getOption("warn")
+if(settings$debug){
+  writeLines(argvec)
+}else{
+  options(warn = -1)
+}
+
+### ~ logWrite function ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+logWrite <- function(logstr){
+  writeLines(paste0("[",date(),"] ",logstr),con=settings$outlog)
+}
+logWrite(paste("#RCODE MerquryRising.R:",version))
+logWrite(paste("#PATH Running from:",getwd()))
+for(cmd in names(settings)[order(names(settings))]){
+  logWrite(paste("CMD:",cmd,"=",paste0(settings[[cmd]],collapse=",")))
+}
+
+### ~ Load R scripts ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+getScriptPath <- function(){
+  cmd.args <- commandArgs()
+  m <- regexpr("(?<=^--file=).+", cmd.args, perl=TRUE)
+  script.dir <- dirname(regmatches(cmd.args, m))
+  if(length(script.dir) == 0) stop("can't determine script dir: please call the script with Rscript")
+  if(length(script.dir) > 1) stop("can't determine script dir: more than one '--file' argument detected")
+  return(script.dir)
+}
+if(settings$rdir == ""){
+  settings$rdir <- getScriptPath()
+}
+# sfile <- paste0(settings$rdir,"/rje_load.R")
+# logWrite(sfile)
+# source(sfile)
+
+### ~ Configure Output ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+settings$writexl = "writexl" %in% installed.packages()[,"Package"]
+if(settings$writexl){
+  library(writexl)
+}else{
+  logWrite("#XLXS Install writexl package for compiled Excel file output.")
+}
+
+
+################################## ::: FUNCTIONS ::: ######################################
+
+##### ======================== Loading data functions ======================== #####
+
+
+############################## ::: PLOTTING FUNCTIONS ::: #################################
+
+
+################################## ::: RUN CODE ::: #######################################
+#i# Tutorial mode will create the functions only. All the reporting and processing will for part of the Rmd.
+if(settings$tutorial){
+  return()
+}
+
+##### ======================== Report key inputs ======================== #####
+
+
+##### ============================ Load Data ============================ #####
+
+##### =========================== Process Data ========================== #####
+
+##### ==================== Generate Tables and Plots ==================== #####
+
+#dir.create(settings$plotdir, showWarnings = FALSE)
+
+
+##### ======================== Tidy and Finish ======================== #####
+if(file.exists("Rplots.pdf")){
+  file.remove("Rplots.pdf")
+}
+
+### ~ Finish ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+options(warn = oldwarn)
+logWrite("#RCODE MerquryRising.R finished.")
