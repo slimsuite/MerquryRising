@@ -70,8 +70,9 @@ defaults = list(basefile="merquryrising",   # Prefix for output files (log and p
                 only=TRUE,                  # Whether to add extra kmers to represent the assembly-only fraction
                 makexlsx=FALSE,             # Make TRUE to generate compiled Excel file
                 outlog=stdout(),            # Change to filename for log output.
-                pngwidth=1200,pngheight=900,pointsize=24,
-                pdfwidth=40,pdfheight=0,pdfscale=1,namesize=1,labelsize=1,
+                digits=3,                   # Number of decimal places for tabular outpur
+                pngwidth=1200,pngheight=900,pointsize=24,plotdir="plots",
+                pdfwidth=10,pdfheight=0,pdfscale=1,namesize=1,labelsize=1,
                 reference="default",
                 rscript=TRUE,debug=FALSE,dev=FALSE,fullrun=TRUE,tutorial=FALSE,
                 rdir="",
@@ -110,7 +111,7 @@ if(! file.exists(settings$config)){
 
 ### ~ Parameter Conversion ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
 #i# integer parameters
-for(cmd in c("pngwidth","pngheight","pointsize","pngscale")){
+for(cmd in c("pngwidth","pngheight","pointsize","pngscale","digits")){
   settings[[cmd]] = as.integer(settings[[cmd]])
 }
 #i# other numeric parameter
@@ -373,6 +374,33 @@ merquryPlot <- function(histTab,ytitle="kmer count shift",G="*"){
     theme_minimal()
   
 }
+
+### ~~~~~~~~~~~~~~~~ Define MerquryRising Colours ~~~~~~~~~~~~~~~~ ###
+# Define the base colors
+green_base <- c("lightgreen", "darkgreen")
+blue_base <- c("lightblue", "darkblue")
+red_base <- c("lightcoral", "darkred")
+# Create palette functions
+green_palette <- colorRampPalette(green_base)
+blue_palette <- colorRampPalette(blue_base)
+red_palette <- colorRampPalette(red_base)
+# Generate the colors
+green_hues <- green_palette(4)
+blue_hues <- blue_palette(4)
+red_hues <- red_palette(4)
+# Combine the colors into a single palette
+mqrcol <- c(blue_hues, green_hues, red_hues)
+
+#i# Update the colour matching for the levels
+# - c("only","n/a","under","good","over"))
+purgecol <- c(mqrcol[1],"black",mqrcol[2],mqrcol[7],"grey",mqrcol[10])
+purgecol <- purgecol[c(1:3,6,5,4)]
+purgecoldf <- tibble(purge=c("only","n/a","under","over","neutral","good"),
+                     purgecol=purgecol)
+# - =c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing")
+classcol <- mqrcol[c(1:9,11)]
+classcoldf <- tibble(class=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"),
+                     classcol=classcol)
 
 ############################## ::: PRE-PROCESSING DATA ::: #################################
 #i# This section generates any data that is not wrapped up in a function but still needed for the tutorial Rmd.

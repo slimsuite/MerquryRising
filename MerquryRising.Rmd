@@ -183,7 +183,7 @@ D <- makeTab1(D)  #i# Main code moved to the Rscript.
 if(nrow(D$boundary) > 0){
   kable(D$boundary, "html", caption = "Ploidy boundaries.", align = "l") %>% kable_styling("striped", full_width = F)
 }
-logWrite(names(D))
+#logWrite(names(D))
 ```
 
 
@@ -222,7 +222,7 @@ makeTab2 <- function(D){
   return(D)
 }
 D <- makeTab2(D)
-logWrite(names(D))
+#logWrite(names(D))
 ```
 
 At this point, we have two "wide" tables of the kmer counts for each genome that belong to different assembly (`afreq`) and raw (`rfreq`) frequency classes. `Table1` has absolute values, whilst `Table2` has values relative to the reference. 
@@ -235,92 +235,68 @@ Generate `Table3`. This is a "long" version of Table 1, with the addition of a `
 ```{r Table3}
 # - Convert `Table1` into a long version [`Table3`] -> `knum` and `assembly`.
 #!# Add report of full ksize and then calculate the %assembly-only and adjust "collapsed"
-Tab1 <- D$Tab1
-Tab2 <- D$Tab2
-Tab3 <- Tab1 %>%
-  pivot_longer(
-    cols = starts_with("G"),
-    names_to = "assembly",
-    names_prefix = "G",
-    values_to = "knum"
-  ) %>% mutate(assembly = as.integer(assembly))
-# - Convert `Table3` `rfreq` into categories based on `ploidy`: `low`, `hap`, `dip`, `high`.
-if("*" %in% D$boundary$G){
-  bi <- rep(1,nrow(Tab3))
-}else{
-  bi <- Tab3$assembly
+makeTab3 <- function(D){
+  Tab3 <- D$Tab1 %>%
+    pivot_longer(
+      cols = starts_with("G"),
+      names_to = "assembly",
+      names_prefix = "G",
+      values_to = "knum"
+    ) %>% mutate(assembly = as.integer(assembly))
+  # - Convert `Table3` `rfreq` into categories based on `ploidy`: `low`, `hap`, `dip`, `high`.
+  if("*" %in% D$boundary$G){
+    bi <- rep(1,nrow(Tab3))
+  }else{
+    bi <- Tab3$assembly
+  }
+  Tab3$ploidy <- "none"
+  Tab3[Tab3$rfreq > 0,]$ploidy <- "low"
+  Tab3[Tab3$rfreq > D$boundary$low[bi],]$ploidy <- "hap"
+  Tab3[Tab3$rfreq > D$boundary$mid[bi],]$ploidy <- "dip"
+  Tab3[Tab3$rfreq > D$boundary$high[bi],]$ploidy <- "high"
+  Tab3$ploidy <- ordered(Tab3$ploidy,levels=c("none","low","hap","dip","high"))
+  # - Create a `Table3` `class` field, based on `afreq` and `rfreq`
+  Tab3$atype <- "3+"
+  Tab3[Tab3$afreq < 3,]$atype <- "2"
+  Tab3[Tab3$afreq < 2,]$atype <- "1"
+  Tab3[Tab3$afreq < 1,]$atype <- "0"
+  Tab3$atype <- ordered(Tab3$atype,levels=c("0","1","2","3+"))
+  # - Generate the kfreq field = knum x rfreq
+  # - If settings$only=TRUE, will add a fake rfreq according to the ploidy
+  if(settings$only){
+    bhap <- Tab3$afreq == 1 & Tab3$rfreq == 0
+    Tab3[bhap,]$rfreq <- D$boundary$haploid[bi][bhap]
+    bdip <- Tab3$afreq == 2 & Tab3$rfreq == 0
+    Tab3[bdip,]$rfreq <- D$boundary$diploid[bi][bdip]
+  }
+  Tab3 <- Tab3 %>% 
+    group_by(atype,ploidy,assembly) %>%
+    summarise(kfreq = sum(knum * rfreq)) %>%
+    rename(afreq=atype, rfreq=ploidy) %>%
+    left_join(D$kclassdb)
+  Tab3$purge <- ordered(Tab3$purge,levels=c("only","n/a","under","good","neutral","over"))
+  Tab3$class <- ordered(Tab3$class,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
+  Tab3$dippurge <- ordered(Tab3$dippurge,levels=c("only","n/a","under","good","neutral","over"))
+  Tab3$dipclass <- ordered(Tab3$dipclass,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
+  #!# Update to account for haploid and diploid assemblies
+  dips <- endsWith(D$adb$name,"dip") | endsWith(D$adb$label,"dip")
+  if(settings$ploidy == "hap"){ dips <- FALSE }
+  if(settings$ploidy == "dip"){ dips <- TRUE }
+  if(sum(dips) > 0){
+    dipi <- dips[Tab3$assembly]
+    Tab3[dipi,]$purge <- Tab3[dipi,]$dippurge
+    Tab3[dipi,]$class <- Tab3[dipi,]$dipclass
+  }
+  D$Tab3 <- Tab3 %>% select(-dippurge, -dipclass)
+  return(D)
 }
-Tab3$ploidy <- "none"
-Tab3[Tab3$rfreq > 0,]$ploidy <- "low"
-Tab3[Tab3$rfreq > D$boundary$low[bi],]$ploidy <- "hap"
-Tab3[Tab3$rfreq > D$boundary$mid[bi],]$ploidy <- "dip"
-Tab3[Tab3$rfreq > D$boundary$high[bi],]$ploidy <- "high"
-Tab3$ploidy <- ordered(Tab3$ploidy,levels=c("none","low","hap","dip","high"))
-# - Create a `Table3` `class` field, based on `afreq` and `rfreq`
-Tab3$atype <- "3+"
-Tab3[Tab3$afreq < 3,]$atype <- "2"
-Tab3[Tab3$afreq < 2,]$atype <- "1"
-Tab3[Tab3$afreq < 1,]$atype <- "0"
-Tab3$atype <- ordered(Tab3$atype,levels=c("0","1","2","3+"))
-# - Generate the kfreq field = knum x rfreq
-# - If settings$only=TRUE, will add a fake rfreq according to the ploidy
-if(settings$only){
-  bhap <- Tab3$afreq == 1 & Tab3$rfreq == 0
-  Tab3[bhap,]$rfreq <- D$boundary$haploid[bi][bhap]
-  bdip <- Tab3$afreq == 2 & Tab3$rfreq == 0
-  Tab3[bdip,]$rfreq <- D$boundary$diploid[bi][bdip]
-}
-Tab3 <- Tab3 %>% 
-  group_by(atype,ploidy,assembly) %>%
-  summarise(kfreq = sum(knum * rfreq)) %>%
-  rename(afreq=atype, rfreq=ploidy) %>%
-  left_join(D$kclassdb)
-Tab3$purge <- ordered(Tab3$purge,levels=c("only","n/a","under","good","neutral","over"))
-Tab3$class <- ordered(Tab3$class,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
-Tab3$dippurge <- ordered(Tab3$dippurge,levels=c("only","n/a","under","good","neutral","over"))
-Tab3$dipclass <- ordered(Tab3$dipclass,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
-#!# Update to account for haploid and diploid assemblies
-dips <- endsWith(D$adb$name,"dip") | endsWith(D$adb$label,"dip")
-if(settings$ploidy == "hap"){ dips <- FALSE }
-if(settings$ploidy == "dip"){ dips <- TRUE }
-if(sum(dips) > 0){
-  dipi <- dips[Tab3$assembly]
-  Tab3[dipi,]$purge <- Tab3[dipi,]$dippurge
-  Tab3[dipi,]$class <- Tab3[dipi,]$dipclass
-}
-Tab3 <- Tab3 %>% select(-dippurge, -dipclass)
+D <- makeTab3(D)
 ```
 
 `Table3` should now have haploid- and diploid-specific ratings.
 
 ```{r palettestuff}
-
-# Define the base colors
-green_base <- c("lightgreen", "darkgreen")
-blue_base <- c("lightblue", "darkblue")
-red_base <- c("lightcoral", "darkred")
-# Create palette functions
-green_palette <- colorRampPalette(green_base)
-blue_palette <- colorRampPalette(blue_base)
-red_palette <- colorRampPalette(red_base)
-# Generate the colors
-green_hues <- green_palette(4)
-blue_hues <- blue_palette(4)
-red_hues <- red_palette(4)
-# Combine the colors into a single palette
-mqrcol <- c(blue_hues, green_hues, red_hues)
-
-#i# Update the colour matching for the levels
-# - c("only","n/a","under","good","over"))
-purgecol <- c(mqrcol[1],"black",mqrcol[2],mqrcol[7],"grey",mqrcol[10])
-purgecoldf <- tibble(purge=c("only","n/a","under","good","neutral","over"),
-                     purgecol=purgecol)
-# - =c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing")
-classcol <- mqrcol[c(1:9,11)]
-classcoldf <- tibble(class=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"),
-                     classcol=classcol)
-
-
+#i# Moved to Rscript.
 ```
 
 # Results
@@ -331,61 +307,103 @@ classcoldf <- tibble(class=c("only","noise","lowQ","duplicate","alternate","hapl
 
 ```{r Table4, fig.width=6, fig.height=3}
 # - Create a `Table4` from `Table3` with the `purge` categories (see below)
-Tab4 <- Tab3 %>%
-  select(-class) %>%
-  group_by(purge,assembly) %>%
-  summarise(kfreq = sum(kfreq)) %>%
-  group_by(assembly) %>%
-  mutate(percentage = (kfreq / sum(kfreq)) * 100) 
+makeTab4 <- function(D){
+  Tab4 <- D$Tab3 %>%
+    select(-class) %>%
+    group_by(purge,assembly) %>%
+    summarise(kfreq = sum(kfreq)) %>%
+    group_by(assembly) %>%
+    mutate(percentage = (kfreq / sum(kfreq)) * 100) 
+  
+  #Tab4$G <- ordered(adb$G[Tab4$assembly],levels=rev(adb$G))
+  Tab4$G <- ordered(D$adb$label[Tab4$assembly],levels=rev(D$adb$label))
+  Tab4$purge <- ordered(Tab4$purge,levels=rev(c("only","n/a","under","over","neutral","good")))
+  
+  D$Tab4 <- Tab4 %>%
+    mutate(percentage = num(percentage, digits = settings$digits))
+  
+  D$Tab4w <- D$Tab4 %>% 
+    pivot_wider(id_cols = G, names_from = purge, values_from = percentage) %>%
+    left_join(D$adb %>% select(label,completeness,qv) %>% rename(G=label)) %>%
+    mutate(completeness = num(completeness, digits = 2)) %>%
+    mutate(qv = num(qv, digits = 2)) %>%
+    rename(assembly=G)
+  
+  return(D)
+}
+D <- makeTab4(D)
 
-#Tab4$G <- ordered(adb$G[Tab4$assembly],levels=rev(adb$G))
-Tab4$G <- ordered(D$adb$label[Tab4$assembly],levels=rev(D$adb$label))
+#i# Rounding to digits seems more useful than sigfig
+kable(D$Tab4w,"html", caption = "Purge rating (percentage).", align = "l") %>% kable_styling("striped", full_width = F)
 
-kable(Tab4 %>% mutate(percentage = num(percentage, sigfig = 3)) %>%
-        pivot_wider(id_cols = G, names_from = purge, values_from = percentage) %>%
-        left_join(D$adb %>% select(label,completeness,qv) %>% rename(G=label)) %>%
-        rename(assembly=G),
-      "html", caption = "Simplified purge classifiers.", align = "l") %>% kable_styling("striped", full_width = F)
 
-#!# Add the QV and Completeness scores to this table
+#i# Generic plot saving function. Adjust height by data rows.
+saveBarplots <- function(plt,nrows=0,ptype="stackedbar"){
+  if(! dir.exists(settings$plotdir)){
+    dir.create(settings$plotdir)
+  }
+  #i# Save PDF
+  plotfile <- paste0(settings$basefile,".",ptype,".pdf")
+  pdfwidth <- settings$pdfwidth
+  pdfheight <- (1 + nrows) / 2
+  ggsave(plotfile,plot=plt,device="pdf",path=settings$plotdir,width=pdfwidth,height=pdfheight,scale=settings$pdfscale,limitsize = FALSE)
+  logWrite(paste0('#GGSAVE Saved output plot to ',settings$plotdir,"/",plotfile))
+  #i# Save PNG
+  pngwidth <- settings$pngwidth
+  pngheight <- 80 + 120 * nrows
+  plotfile <- paste0(settings$basefile,".",ptype,".png")
+  ggsave(plotfile,plot=plt,device="png",path=settings$plotdir,width=pdfwidth,height=pdfheight,scale=settings$pdfscale,limitsize = FALSE)
+  logWrite(paste0('#GGSAVE Saved output plot to ',settings$plotdir,"/",plotfile))
+}
 
-Tab4$purge2 <- ordered(Tab4$purge,levels=rev(c("only","n/a","under","over","neutral","good")))
-purgecol2 <- purgecol[c(1:3,6,5,4)]
 
-p <- ggplot(Tab4, aes(x = percentage, y = G, fill = purge2)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = rev(purgecol2)) +
-  labs(x = "Percentage", y = "Assembly") +
-  theme_minimal()
+#i# Purge rating stacked bar plot. Designed to take D$Tab4 as input
+purgePlot <- function(pTab,saveplot=TRUE,ptype="rating"){
+  p <- ggplot(pTab, aes(x = percentage, y = G, fill = purge)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = rev(purgecol)) +
+    labs(x = "Percentage", y = "Assembly") +
+    theme_minimal()
+  if(saveplot){
+    saveBarplots(p,length(unique(pTab$G)),ptype)
+  }
+  return(p)
+}
+
+
+p <- purgePlot(D$Tab4)
 print(p)
 
 
-Tab4$purge <- ordered(Tab4$purge,levels=rev(levels(Tab4$purge)))
-
-#Tab4 <- Tab4 %>% left_join(purgecoldf)
-
-p <- ggplot(Tab4, aes(x = percentage, y = G, fill = purge)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = rev(purgecol)) +
-  labs(x = "Percentage", y = "Assembly") +
-  theme_minimal()
-print(p)
 
 
 
 
 # - Collapse by `class` and sum up the `knum` [`Table5`]
-Tab5 <- Tab3 %>%
-  select(-purge) %>%
-  group_by(class,assembly) %>%
-  summarise(kfreq = sum(kfreq)) %>%
-  group_by(assembly) %>%
-  mutate(percentage = (kfreq / sum(kfreq)) * 100) 
+makeTab5 <- function(D){
+  Tab5 <- D$Tab3 %>%
+    select(-purge) %>%
+    group_by(class,assembly) %>%
+    summarise(kfreq = sum(kfreq)) %>%
+    group_by(assembly) %>%
+    mutate(percentage = (kfreq / sum(kfreq)) * 100) 
+  
+  #Tab5$G <- ordered(adb$G[Tab5$assembly],levels=rev(adb$G))
+  Tab5$G <- ordered(D$adb$label[Tab5$assembly],levels=rev(D$adb$label))
+  Tab5$class <- ordered(Tab5$class,levels=rev(levels(Tab5$class)))
+  
+  D$Tab5 <- Tab5 %>% 
+    mutate(percentage = num(percentage, digits = settings$digits))
+  
+  D$Tab5w <- D$Tab5 %>% 
+    pivot_wider(id_cols = G, names_from = class, values_from = percentage) %>%
+    rename(assembly=G)
+  return(D)
+}
+D <- makeTab5(D)
 
-#Tab5$G <- ordered(adb$G[Tab5$assembly],levels=rev(adb$G))
-Tab5$G <- ordered(D$adb$label[Tab5$assembly],levels=rev(D$adb$label))
-Tab5$class <- ordered(Tab5$class,levels=rev(levels(Tab5$class)))
-p <- ggplot(Tab5, aes(x = percentage, y = G, fill = class)) +
+
+p <- ggplot(D$Tab5, aes(x = percentage, y = G, fill = class)) +
   geom_bar(stat = "identity") +
   scale_fill_manual(values = rev(classcol)) +
   labs(x = "Percentage", y = "Assembly") +
@@ -393,27 +411,13 @@ p <- ggplot(Tab5, aes(x = percentage, y = G, fill = class)) +
 print(p)
 
 # Considered sigfig=3 but digits=2 is probably more useful
-kable(Tab5 %>% mutate(percentage = num(percentage, digits = 2)) %>%
-  pivot_wider(id_cols = G, names_from = class, values_from = percentage) %>%
-  rename(assembly=G), "html", caption = "Purge classifiers.", align = "l") %>% kable_styling("striped", full_width = F)
+kable(D$Tab5w, "html", caption = "Kmer classification (percentage).", align = "l") %>% kable_styling("striped", full_width = F)
 
 
 # [ ] Save to PDF
 # pdfwidth <- settings$pdfwidth
 # pdfheight <- 1 + 2*length(settings$order)
 
-
-#!# Add the "only" numbers
-
-#Q# How should the only kmers be handled? Nominally, each assembly-only kmer should be present at the diploid read depth?
-
-#?# Should the repeats be "neutral"?
-#!# Add a second plot without repeats
-
-# - Generate a horizontal stacked bar plot of each assembly: noise, only, lowQ, duplicate, alternate, haploid, diploid, repeats, collapsed, missing [`Table5`]
-# - Generate a horizontal stacked bar plot of each assembly: noise, only, under, good, over [`Table4`]
-
-# - Generate a kmer difference plot for each assembly versus the reference with afreq of 0, 1, 2, 3+ [`Table2`]
 
 
 # - Reshape `Table5` and `Table4` wide and convert into difference versus reference. Generate difference plots.
@@ -436,7 +440,7 @@ These plots have been converted into relative values compared to the reference a
 
 for(i in 1:nrow(D$adb)){
   pref = FALSE
-  pTab <- Tab2
+  pTab <- D$Tab2
   ytitle <- "kmer count shift" 
   if(settings$reference == "default"){
     if(i < 2){
@@ -451,7 +455,7 @@ for(i in 1:nrow(D$adb)){
     refname <- settings$reference
   }
   if(pref){
-    pTab <- Tab1 #%>% filter(rfreq > 1)
+    pTab <- D$Tab1 #%>% filter(rfreq > 1)
     ytitle <- "No. distinct kmers"
   }
   G <- D$adb$G[i]
@@ -471,7 +475,11 @@ for(i in 1:nrow(D$adb)){
   cat('\n\n')
 }
 
+#!# Add percentage tables, along with  the reference and difference.
 
+#i# Convert into relative values
+#D$Tab4rel <- D$Tab4w  # Converted into relative values.
+#D$Tab5rel <- D$Tab5w  # Converted into relative values.
 
 
 ```
