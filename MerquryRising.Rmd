@@ -60,7 +60,7 @@ knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE
 #?# I wonder if this is the solution for HTML output within loops?
 
 #i# Set defaults for the Rmd implementation that might be different from the standalone version
-override <- c('fullrun=FALSE','rdir=.','debug=TRUE','dev=TRUE')
+override <- c('fullrun=FALSE','rdir=.','debug=FALSE','dev=TRUE')
 source('./merquryrising.R')
 ```
 
@@ -103,7 +103,6 @@ _Add table of class and purge descriptions._
 
 ```{r dipkmerclasses}
 #i# Definition now part of the merquryrising.R script.
-kclassdb <- D$kclassdb
 kable(D$kclassdb, "html", caption = "MerquryRising Kmer frequency classes.", align = "c") %>% kable_styling("striped", full_width = F)
 ```
 
@@ -122,13 +121,12 @@ The following input files and assemblies have been recognised for this run:
 
 ```{r set_files}
 #i# Creation is now handled in the R script.
-# adb <- setInputFiles()
-adb <- D$adb
+# D$adb <- setInputFiles()
 #i# Summarise the input data table
 if(settings$debug){
-  kable(adb, "html", caption = "Input genome assemblies and QV/completeness stats.", align = "l") %>% kable_styling("striped", full_width = F)  
+  kable(D$adb, "html", caption = "Input genome assemblies and QV/completeness stats.", align = "l") %>% kable_styling("striped", full_width = F)  
 }else{
-  kable(adb %>% select(-file,-ofile), "html", caption = "Input genome assemblies and QV/completeness stats.", align = "l") %>% kable_styling("striped", full_width = F)
+  kable(D$adb %>% select(-file,-ofile), "html", caption = "Input genome assemblies and QV/completeness stats.", align = "l") %>% kable_styling("striped", full_width = F)
 }
 ```
 
@@ -177,21 +175,15 @@ if(nrow(D$boundary) > 0){
 Generate `Table1` from the hist files.
 
 ```{r loadhist}
+#i# All the tables are now elements of the D list, e.g. D$Tab1, D$Tab2 etc.
 # - Load the `*.spectra-cn.hist` data tables into tibbles with 3 fields: `afreq` (kmer frequency in assembly), `rfreq` (kmer frequency in reads) and `knum` (number of different kmers).
-Tab1 <- D$Tab1 #makeTab1()  #i# Main code moved to the Rscript.
-
-#!# This has broken the boundary table generation: need to fix
-# Put D within the function and then return D with D$Tab1 and D$boundary
+D <- makeTab1(D)  #i# Main code moved to the Rscript.
 
 # Display boundaries loaded from the individual distributions
 if(nrow(D$boundary) > 0){
   kable(D$boundary, "html", caption = "Ploidy boundaries.", align = "l") %>% kable_styling("striped", full_width = F)
 }
-
-adb <- D$adb
-boundary <- D$boundary
-ploidy <- D$ploidy
-
+logWrite(names(D))
 ```
 
 
@@ -208,23 +200,29 @@ Generate `Table2` from `Table1`, with all values relative to reference.
 # - Convert `Table1` into a version of all values relative to reference. [`Table2`]
 #i# If settings$reference is `default`, will use the previous genome as the reference in each case
 #i# Otherwise, will compare all to a specific reference
-if(settings$reference %in% adb$name){
-  refG <- adb[settings$reference == adb$name,]$G
-}else{
-  if(settings$reference != "default"){
-    logWrite(paste("Cannot find reference:",settings$reference))
+makeTab2 <- function(D){
+  if(settings$reference %in% D$adb$name){
+    refG <- D$adb[settings$reference == D$adb$name,]$G
+  }else{
+    if(settings$reference != "default"){
+      logWrite(paste("Cannot find reference:",settings$reference))
+    }
+    #!# Add option to use a number to pick the reference
   }
-  #!# Add option to use a number to pick the reference
-}
-Tab2 <- Tab1
-prevG <- adb$G[1]
-for(G in adb$G){
-  if(settings$reference == "default"){
-    refG <- prevG
-    prevG <- G
+  Tab2 <- D$Tab1
+  prevG <- D$adb$G[1]
+  for(G in D$adb$G){
+    if(settings$reference == "default"){
+      refG <- prevG
+      prevG <- G
+    }
+    Tab2[[G]] <- D$Tab1[[G]] - D$Tab1[[refG]]
   }
-  Tab2[[G]] <- Tab1[[G]] - Tab1[[refG]]
+  D$Tab2 <- Tab2
+  return(D)
 }
+D <- makeTab2(D)
+logWrite(names(D))
 ```
 
 At this point, we have two "wide" tables of the kmer counts for each genome that belong to different assembly (`afreq`) and raw (`rfreq`) frequency classes. `Table1` has absolute values, whilst `Table2` has values relative to the reference. 
@@ -235,13 +233,10 @@ At this point, we have two "wide" tables of the kmer counts for each genome that
 Generate `Table3`. This is a "long" version of Table 1, with the addition of a `knum` field. `afreq` and `rfreq` are then converted to the categories based on `afreq` and ploidy. Assembly-only kmers are arbitrarily given haploid or diploid kmer frequencies for the purposes of calculating the total kmer percentage for these categories.
 
 ```{r Table3}
-#!# Update this to join with a boundaries table first to allow different boundaries per assembly, then do the ratings.
-#i# Convert into a ploidy table with G hap dip and high boundaries and fields
-
-
-
 # - Convert `Table1` into a long version [`Table3`] -> `knum` and `assembly`.
 #!# Add report of full ksize and then calculate the %assembly-only and adjust "collapsed"
+Tab1 <- D$Tab1
+Tab2 <- D$Tab2
 Tab3 <- Tab1 %>%
   pivot_longer(
     cols = starts_with("G"),
@@ -250,16 +245,16 @@ Tab3 <- Tab1 %>%
     values_to = "knum"
   ) %>% mutate(assembly = as.integer(assembly))
 # - Convert `Table3` `rfreq` into categories based on `ploidy`: `low`, `hap`, `dip`, `high`.
-if("*" %in% boundary$G){
+if("*" %in% D$boundary$G){
   bi <- rep(1,nrow(Tab3))
 }else{
   bi <- Tab3$assembly
 }
 Tab3$ploidy <- "none"
 Tab3[Tab3$rfreq > 0,]$ploidy <- "low"
-Tab3[Tab3$rfreq > boundary$low[bi],]$ploidy <- "hap"
-Tab3[Tab3$rfreq > boundary$mid[bi],]$ploidy <- "dip"
-Tab3[Tab3$rfreq > boundary$high[bi],]$ploidy <- "high"
+Tab3[Tab3$rfreq > D$boundary$low[bi],]$ploidy <- "hap"
+Tab3[Tab3$rfreq > D$boundary$mid[bi],]$ploidy <- "dip"
+Tab3[Tab3$rfreq > D$boundary$high[bi],]$ploidy <- "high"
 Tab3$ploidy <- ordered(Tab3$ploidy,levels=c("none","low","hap","dip","high"))
 # - Create a `Table3` `class` field, based on `afreq` and `rfreq`
 Tab3$atype <- "3+"
@@ -271,21 +266,21 @@ Tab3$atype <- ordered(Tab3$atype,levels=c("0","1","2","3+"))
 # - If settings$only=TRUE, will add a fake rfreq according to the ploidy
 if(settings$only){
   bhap <- Tab3$afreq == 1 & Tab3$rfreq == 0
-  Tab3[bhap,]$rfreq <- boundary$haploid[bi][bhap]
+  Tab3[bhap,]$rfreq <- D$boundary$haploid[bi][bhap]
   bdip <- Tab3$afreq == 2 & Tab3$rfreq == 0
-  Tab3[bdip,]$rfreq <- boundary$diploid[bi][bdip]
+  Tab3[bdip,]$rfreq <- D$boundary$diploid[bi][bdip]
 }
 Tab3 <- Tab3 %>% 
   group_by(atype,ploidy,assembly) %>%
   summarise(kfreq = sum(knum * rfreq)) %>%
   rename(afreq=atype, rfreq=ploidy) %>%
-  left_join(kclassdb)
+  left_join(D$kclassdb)
 Tab3$purge <- ordered(Tab3$purge,levels=c("only","n/a","under","good","neutral","over"))
 Tab3$class <- ordered(Tab3$class,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
 Tab3$dippurge <- ordered(Tab3$dippurge,levels=c("only","n/a","under","good","neutral","over"))
 Tab3$dipclass <- ordered(Tab3$dipclass,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
 #!# Update to account for haploid and diploid assemblies
-dips <- endsWith(adb$name,"dip") | endsWith(adb$label,"dip")
+dips <- endsWith(D$adb$name,"dip") | endsWith(D$adb$label,"dip")
 if(settings$ploidy == "hap"){ dips <- FALSE }
 if(settings$ploidy == "dip"){ dips <- TRUE }
 if(sum(dips) > 0){
@@ -325,18 +320,6 @@ classcol <- mqrcol[c(1:9,11)]
 classcoldf <- tibble(class=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"),
                      classcol=classcol)
 
-# Create a data frame with the colors of the palette
-colors_df <- data.frame(
-  color = c(blue_hues, green_hues, red_hues)
-)
-# Create a ggplot object
-p <- ggplot(colors_df, aes(x = rep(1:4,3), y = c(1,1,1,1,2,2,2,2,3,3,3,3), fill = color)) +
-  geom_tile() +
-  scale_fill_identity() +
-  theme_void() +
-  theme(legend.position = "none")
-#print(p)
-
 
 ```
 
@@ -356,11 +339,11 @@ Tab4 <- Tab3 %>%
   mutate(percentage = (kfreq / sum(kfreq)) * 100) 
 
 #Tab4$G <- ordered(adb$G[Tab4$assembly],levels=rev(adb$G))
-Tab4$G <- ordered(adb$label[Tab4$assembly],levels=rev(adb$label))
+Tab4$G <- ordered(D$adb$label[Tab4$assembly],levels=rev(D$adb$label))
 
 kable(Tab4 %>% mutate(percentage = num(percentage, sigfig = 3)) %>%
         pivot_wider(id_cols = G, names_from = purge, values_from = percentage) %>%
-        left_join(adb %>% select(label,completeness,qv) %>% rename(G=label)) %>%
+        left_join(D$adb %>% select(label,completeness,qv) %>% rename(G=label)) %>%
         rename(assembly=G),
       "html", caption = "Simplified purge classifiers.", align = "l") %>% kable_styling("striped", full_width = F)
 
@@ -400,7 +383,7 @@ Tab5 <- Tab3 %>%
   mutate(percentage = (kfreq / sum(kfreq)) * 100) 
 
 #Tab5$G <- ordered(adb$G[Tab5$assembly],levels=rev(adb$G))
-Tab5$G <- ordered(adb$label[Tab5$assembly],levels=rev(adb$label))
+Tab5$G <- ordered(D$adb$label[Tab5$assembly],levels=rev(D$adb$label))
 Tab5$class <- ordered(Tab5$class,levels=rev(levels(Tab5$class)))
 p <- ggplot(Tab5, aes(x = percentage, y = G, fill = class)) +
   geom_bar(stat = "identity") +
@@ -451,7 +434,7 @@ These plots have been converted into relative values compared to the reference a
 
 ```{r plotsVsRef, results='asis'}
 
-for(i in 1:nrow(adb)){
+for(i in 1:nrow(D$adb)){
   pref = FALSE
   pTab <- Tab2
   ytitle <- "kmer count shift" 
@@ -459,29 +442,29 @@ for(i in 1:nrow(adb)){
     if(i < 2){
       pref <- TRUE
     }
-    refname <- adb$name[i-1]
+    refname <- D$adb$name[i-1]
   }
-  if(settings$reference == adb$name[i]){
+  if(settings$reference == D$adb$name[i]){
     pref <- TRUE
   }
-  if(settings$reference %in% adb$name){
+  if(settings$reference %in% D$adb$name){
     refname <- settings$reference
   }
   if(pref){
     pTab <- Tab1 #%>% filter(rfreq > 1)
     ytitle <- "No. distinct kmers"
   }
-  G <- adb$G[i]
+  G <- D$adb$G[i]
   dat <- pTab %>% rename(knum=!!G) %>% select(afreq,rfreq,knum)
   p <- merquryPlot(dat,ytitle,G)
-  cat(paste('###',adb$name[i],'\n\n'))
+  cat(paste('###',D$adb$name[i],'\n\n'))
   
-  print(kable(adb[i,], "html", caption = adb$name[i], align = "l") %>% kable_styling("striped", full_width = F))
+  print(kable(D$adb[i,], "html", caption = D$adb$name[i], align = "l") %>% kable_styling("striped", full_width = F))
   cat(paste('\n\n'))
   if(! pref){
-    cat(paste0('\n\nRelative change of ',adb$name[i],' versus ',refname,':\n\n'))
+    cat(paste0('\n\nRelative change of ',D$adb$name[i],' versus ',refname,':\n\n'))
   }else{
-    cat(paste0('\n\nMerqury plot for ',adb$name[i],'.\n\n'))
+    cat(paste0('\n\nMerqury plot for ',D$adb$name[i],'.\n\n'))
   }
   print(p)
   #cat(paste0('\n\n**Plot of relative change versus',refname,'.**\n\n'))

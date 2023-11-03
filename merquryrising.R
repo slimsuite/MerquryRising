@@ -326,6 +326,10 @@ makeTab1 <- function(D){
   return(D)
 }
 
+##### =========================== Process Data Functions ========================== #####
+
+
+
 ############################## ::: PLOTTING FUNCTIONS ::: #################################
 #i# Merqury code to standardise style.
 #i# Code based on: https://github.com/marbl/merqury/blob/master/plot/plot_spectra_cn.R
@@ -344,10 +348,10 @@ ALPHA=0.4
 #># G is used to map onto the boundary file
 merquryPlot <- function(histTab,ytitle="kmer count shift",G="*"){
   dipk <- settings$diploid * 1.5
-  if(G %in% boundary$G){
-    bD <- boundary %>% filter(G == !!G)
+  if(G %in% D$boundary$G){
+    bD <- D$boundary %>% filter(G == !!G)
   }else{
-    bD <- boundary %>% filter(G == "*")
+    bD <- D$boundary %>% filter(G == "*")
   }
   dat <- histTab %>%
     filter(rfreq < as.numeric(bD$high)*2,afreq < 5)
@@ -412,7 +416,7 @@ adb <- setInputFiles()
 D$adb <- adb
 
 ##### ============================ Load Data ============================ #####
-if(! settings$rscript){
+if(settings$rscript){
   D <- makeTab1(D)
   logWrite(paste(nrow(D$Tab1), "kmer frequency values loaded from hist files."))
 }
