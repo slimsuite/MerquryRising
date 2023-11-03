@@ -144,8 +144,10 @@ logWrite <- function(logstr){
 }
 logWrite(paste("#RCODE MerquryRising.R:",version))
 logWrite(paste("#PATH Running from:",getwd()))
-for(cmd in names(settings)[order(names(settings))]){
-  logWrite(paste("CMD:",cmd,"=",paste0(settings[[cmd]],collapse=",")))
+if(settings$debug | settings$rscript){
+  for(cmd in names(settings)[order(names(settings))]){
+    logWrite(paste("CMD:",cmd,"=",paste0(settings[[cmd]],collapse=",")))
+  }
 }
 
 ### ~ Load R scripts ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
@@ -226,21 +228,107 @@ densityDiploid <- function(kmerTab,minfreq=5,maxfreq=1000,adjust=1,plot=TRUE){
   return(kdiploid)
 }
 
+# - Function to generate boundaries from diploid frequency
+makeBoundary <- function(dipk,G="*"){
+  bdb <- tibble(G=G,haploid=0.5*dipk,diploid=dipk,low=max(5,0.125 * dipk),mid=0.75*dipk,high=1.5*dipk)
+  return(bdb)
+}
+
+
 
 ##### ======================== Loading data functions ======================== #####
+
+### ~~~~~~~~~~~~~~~~ setInputFiles() ~~~~~~~~~~~~~~~~ ###
+#i# setInputFiles() loads all the data based on the settings variables and returns the table.
+# > adb <- setInputFiles()
+setInputFiles <- function(){
+  # - Establish list of input assembly files and build alias list (`G1` to `Gn`).
+  hfiles <- list.files(settings$merqurydir,settings$histfiles)  # '*.spectra-cn.hist')
+  if(is.integer(settings$histsort)){
+    hfiles <- hfiles[settings$histsort]
+  }
+  hbase <- str_remove_all(hfiles, ".spectra-cn.hist")
+  hnames <- str_remove_all(str_extract(hfiles, ".*\\.merqury"),".merqury")
+  # Or: hnames <- str_match(hfiles, "^(.*?)\\.merqury")[,2]
+  halias <- paste0("G",1:length(hbase))
+  adb <- tibble(G=halias,name=hnames,base=hbase,file=hfiles)
+  # - Map onto labels
+  adb$label <- adb$G
+  if(file.exists(settings$labels)){
+    labdb <- read.table(settings$labels) %>% rename(label=V1,file=V2)
+    adb <- left_join(adb %>% select(-label),labdb)
+  }
+  if(settings$labels == "FALSE"){
+    adb$label <- adb$G
+  }
+  
+  # Check and report the files
+  adb$hist <- file.exists(paste0(settings$merqurydir,"/",adb$file))
+  adb$ofile <- paste0(adb$base,".only.hist")
+  adb$only <- file.exists(paste0(settings$merqurydir,"/",adb$ofile))
+  
+  # Add the QV and completeness data
+  adb$qv <- NA
+  adb$completeness <- NA
+  for(i in 1:nrow(adb)){
+    qvfile <- paste0(settings$merqurydir,"/qv/",adb$name[i],".merqury.qv")
+    if(file.exists(qvfile)){
+      adb$qv[i] <- read.table(qvfile)[1,4]
+    }
+    statsfile <- paste0(settings$merqurydir,"/stats/",adb$name[i],".merqury.completeness.stats")
+    if(file.exists(statsfile)){
+      adb$completeness[i] <- read.table(statsfile)[1,5]
+    }
+  }
+  
+  # Return the table
+  adb <- adb %>% 
+    select(G, label, name, hist, only, qv, completeness, base, file, ofile)
+  return(adb)
+}
 
 
 ############################## ::: PLOTTING FUNCTIONS ::: #################################
 
 
+############################## ::: PRE-PROCESSING DATA ::: #################################
+#i# This section generates any data that is not wrapped up in a function but still needed for the tutorial Rmd.
+
+# - Load the read kmer frequency boundaries from the ploidy file: `ploidy`, `depth`, `boundary`.
+#i# This will be the tibble of haploid, diploid, low, med and high frequencies.
+boundary <- tibble(G=c(),haploid=c(),diploid=c(),low=c(),mid=c(),high=c())
+ploidy <- tibble()   #i# This is if the boundaries are loaded from a ploidy file rather than calculate from hist.
+settings$diploid <- 0 # Will stay zero if failure
+ploidyfile <- list.files(settings$merqurydir,'*ploidy')[1]
+if(settings$boundary == "ploidy"){
+  settings$boundary <- ploidyfile
+}
+if(file.exists(settings$boundary)){
+  ploidyfile <- settings$boundary
+  if(endsWith(ploidyfile,"ploidy")){
+    logWrite(paste('Using ploidy file',ploidyfile,'to set boundaries.'))
+    ploidy <- read.delim(paste0(settings$merqurydir,'/',ploidyfile))
+    settings$diploid <- ploidy$depth[3]
+    boundary <- tibble(assembly="*",haploid=ploidy$depth[2],diploid=ploidy$depth[3],low=ploidy$boundary[1],mid=ploidy$boundary[2],high=ploidy$boundary[3])
+  }else{
+    kmerTab <- loadHist(ploidyfile)
+    settings$diploid <- densityDiploid(kmerTab)
+    boundary <- makeBoundary(settings$diploid)
+  }
+}
+
+
+
 ################################## ::: RUN CODE ::: #######################################
-#i# Tutorial mode will create the functions only. All the reporting and processing will for part of the Rmd.
+#i# Tutorial mode will create the functions and pre-processing only. All the reporting and processing will form part of the Rmd.
 if(settings$tutorial){
   return()
 }
 logWrite('Functions declared. Ready to load data!')
 
 ##### ======================== Report key inputs ======================== #####
+#i# Create the input data table
+adb <- setInputFiles()
 
 
 ##### ============================ Load Data ============================ #####

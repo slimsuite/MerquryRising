@@ -28,7 +28,7 @@ Input files are read from the directory specified by `merqurydir=PATH` (default:
 1. Default mode will compare each kmer histogram with the preceding one.
 2. Reference mode will compare every kmer histogram with the same reference. (Either named, else the first file.)
 
-Please check the settings loaded from the config file, below.
+To check the settings loaded from the config file, edit the Rmarkdown to have `debug=TRUE`.
 
 ```{r rmd, echo=FALSE, warning=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE)
@@ -53,13 +53,14 @@ knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE
 # [ ] : Update to process the diploid ASM data with the haplotype-specific and shared kmers.
 # [ ] : Add capacity to parse qv and completeness from collated tables and map via name.
 # [ ] : Rationalise the dimensions of the output graphics.
+# [ ] : Do not generate relative purge plot if no change! Just report a lack of difference. (Tabulate the difference.)
 
 # NOTES
 #!# Consider setting results='asis' to avoid wrapping in ```.
 #?# I wonder if this is the solution for HTML output within loops?
 
 #i# Set defaults for the Rmd implementation that might be different from the standalone version
-override <- c('fullrun=FALSE','rdir=.',debug=TRUE)
+override <- c('fullrun=FALSE','rdir=.','debug=FALSE','dev=TRUE')
 source('./merquryrising.R')
 ```
 
@@ -95,7 +96,9 @@ Please see the Tutorial for more details.
 
 ### Kmer classes
 
-Kmer classes will be assigned based on the read frequency (`rfreq`) and kmer frequency (`kfreq`), ploidy boundaries (see Tutorial and below), and whether the assembly is haploid or diploid.
+Kmer classes will be assigned based on the read frequency (`rfreq`) and kmer frequency (`kfreq`), ploidy boundaries (see Tutorial and below), and whether the assembly is haploid or diploid. Classification is first based on more specific categories, which are then grouped into broader purge categories. The `dipclass` and `dippurge` ratings are used for diploid assemblies.
+
+_Add table of class and purge descriptions._
 
 
 ```{r dipkmerclasses}
@@ -117,142 +120,59 @@ _Add the field descriptions here_.
 The following input files and assemblies have been recognised for this run:
 
 ```{r set_files}
-##### ======================== Report key inputs ======================== #####
-#i# setInputFiles() loads all the data based on the settings variables and returns the table.
-# > adb <- setInputFiles()
-setInputFiles <- function(){
-  # - Establish list of input assembly files and build alias list (`G1` to `Gn`).
-  hfiles <- list.files(settings$merqurydir,settings$histfiles)  # '*.spectra-cn.hist')
-  if(is.integer(settings$histsort)){
-    hfiles <- hfiles[settings$histsort]
-  }
-  hbase <- str_remove_all(hfiles, ".spectra-cn.hist")
-  hnames <- str_remove_all(str_extract(hfiles, ".*\\.merqury"),".merqury")
-  # Or: hnames <- str_match(hfiles, "^(.*?)\\.merqury")[,2]
-  halias <- paste0("G",1:length(hbase))
-  adb <- tibble(G=halias,name=hnames,base=hbase,file=hfiles)
-  # - Map onto labels
-  adb$label <- adb$G
-  if(file.exists(settings$labels)){
-    labdb <- read.table(settings$labels) %>% rename(label=V1,file=V2)
-    adb <- left_join(adb %>% select(-label),labdb)
-  }
-  if(settings$labels == "FALSE"){
-    adb$label <- adb$G
-  }
-  
-  # Check and report the files
-  adb$hist <- file.exists(paste0(settings$merqurydir,"/",adb$file))
-  adb$ofile <- paste0(adb$base,".only.hist")
-  adb$only <- file.exists(paste0(settings$merqurydir,"/",adb$ofile))
-  
-  # Add the QV and completeness data
-  adb$qv <- NA
-  adb$completeness <- NA
-  for(i in 1:nrow(adb)){
-    qvfile <- paste0(settings$merqurydir,"/qv/",adb$name[i],".merqury.qv")
-    if(file.exists(qvfile)){
-      adb$qv[i] <- read.table(qvfile)[1,4]
-    }
-    statsfile <- paste0(settings$merqurydir,"/stats/",adb$name[i],".merqury.completeness.stats")
-    if(file.exists(statsfile)){
-      adb$completeness[i] <- read.table(statsfile)[1,5]
-    }
-  }
-
-  # Return the table
-  adb <- adb %>% 
-    select(G, label, name, hist, only, qv, completeness, base, file, ofile)
-  return(adb)
-}
-
-#i# Create and summarise the input data table
-adb <- setInputFiles()
+#i# Creation is now handled in the R script.
+# adb <- setInputFiles()
+#i# Summarise the input data table
 if(settings$debug){
-  kable(adb %>% select(-file,-ofile), "html", caption = "Input genome assemblies and QV/completeness stats.", align = "l") %>% kable_styling("striped", full_width = F)  
+  kable(adb, "html", caption = "Input genome assemblies and QV/completeness stats.", align = "l") %>% kable_styling("striped", full_width = F)  
 }else{
-  kable(adb, "html", caption = "Input genome assemblies and QV/completeness stats.", align = "l") %>% kable_styling("striped", full_width = F)
+  kable(adb %>% select(-file,-ofile), "html", caption = "Input genome assemblies and QV/completeness stats.", align = "l") %>% kable_styling("striped", full_width = F)
 }
-
-
 ```
 
 
-
-
-
-
-
-
 ## Setting the ploidy boundaries
+
+The next step is set the ploidy boundaries that establish `rfreq` categories as `low`, `haploid`, `diploid` or `high` frequencies. Assembly-only kmers are classified as `only`. 
+
+The original iterations of this script used the `boundary` values loaded from the `ploidy` file, but these appear to be quite conservative and result in a lot of kmers being rated as over- or under-purged based on the merqury plots themselves, with a lot of the main distributions broader than the values loaded. Ploidy boundaries are therefore set by default to be determined from the histograms themselves. For consistent boundaries, provide a `*.hist` file to the `ploidy=FILE` setting.
+
+When `*.hist` files are used (assembly-specific or general), the diploid peak is first identified as the kmer density peak for rfreq values up to 1000. The boundaries are then calculated based on this `diploid` peak:
+
+* `haploid` frequency is set to half `diploid`.
+* The `low` boundary is set to the _maximum_ value of 5, or 0.25 `haploid`. Upto this value of `rfreq` (raw read kmer frequency), kmers are rated `low`. This is plotted as a solid black line on the Comparative Merqury plots.
+* The `mid` boundary is set to halfway between `haploid` and `diploid`. Raw kmer frequencies above the `low` boundary and upto the `mid` boundary `hap`. This is plotted as a solid red line on the Comparative Merqury plots, with the haploid peak a dotted red line.
+* The `high` boundary is set to 1.5 `diploid`. Raw kmer frequencies above the `hap` boundary and upto the `high` boundary are rated `dip`. This is plotted as a solid blue line on the Comparative Merqury plots, with the diploid peak a dotted blue line.
+* Above the `high` boundary, kmers are rated as `high`.
+
+**NOTE:** For very heterozygous genomes, where the haploid peak exceeds the diploid peak, the diploid peak calculation will break. For these, it is advised to make and load a `*.ploidy` file to use for all assemblies.
+
+**NOTE:** The classification percentages are ultimately defined by the ploidy boundaries, which do not fully capture the extent of each sub-distribution of kmers. As a consequence, there will always be a degree of mis-assigned kmers. For this reason, percentages are best considered as comparative values rather than absolute values.
+
+
+```{r load_ploidy}
+#i# Optional loading of the ploidy file or generic ploidy boundaries are now handled in the main R script.
+
+if(nrow(ploidy) > 0){
+  kable(ploidy, "html", caption = "Ploidy boundaries for all assemblies, loaded from ploidy file.", align = "l") %>% kable_styling("striped", full_width = F)
+}
+if(nrow(boundary) > 0){
+  kable(boundary, "html", caption = "Ploidy boundaries for all assemblies.", align = "l") %>% kable_styling("striped", full_width = F)
+}
+```
+
+## Load and integrate kmer frequency data
+
 
 
 # Processing
 
 
-# Results
-
-
-## Load and Integrate Data
-
-
-### Input genomes
 
 
 
-### Ploidy boundaries
 
-**NOTE:* This needs to be moved to AFTER the tables are loaded, so ploidy can be calculated from the hist files directly.
-
-The classification percentages are ultimately defined by the ploidy boundaries, which for now are set by the `*.ploidy` file in the input merqury file directory. This is definitely a place with room for improvement, so please get in touch if you have any ideas or suggestions!
-
-The original iterations of this script used the `boundary` values loaded from the file, but these appear to be quite conservative and result in a lot of kmers being rated as over- or under-purged based on the merqury plots themselves, with a lot of the main distributions broader than the values loaded. They have therefore been replaced with:
-
-* The lower boundary is set to the _maximum_ value of 5, or 0.25 the haploid `depth`. Upto this value of `rfreq` (raw read kmer frequency), kmers are rated `low`. This is plotted as a solid black line on the Comparative Merqury plots.
-* The middle boundary is set to halfway between the haploid and diploid `depth`. Raw kmer frequencies above the `low` boundary and upto this middle boundary are rated `hap`. This is plotted as a solid red line on the Comparative Merqury plots, with the haploid peak a dotted red line.
-* The upper boundary is set to 1.5 the diploid `depth`. Raw kmer frequencies above the `hap` boundary and upto this upper boundary are rated `dip`. This is plotted as a solid blue line on the Comparative Merqury plots, with the diploid peak a dotted blue line. Above this boundary, kmers are rated as `high`.
-
-```{r load_ploidy}
-# - Function to generate boundaries from diploid frequency
-makeBoundary <- function(dipk,G="*"){
-  bdb <- tibble(G=G,haploid=0.5*dipk,diploid=dipk,low=max(5,0.125 * dipk),mid=0.75*dipk,high=1.5*dipk)
-  return(bdb)
-}
-
-# - Load the read kmer frequency boundaries from the ploidy file: `ploidy`, `depth`, `boundary`.
-#i# This will be the tibble of haploid, diploid, low, med and high frequencies.
-boundary <- tibble(G=c(),haploid=c(),diploid=c(),low=c(),mid=c(),high=c())
-ploidy <- tibble()   #i# This is if the boundaries are loaded from a ploidy file rather than calculate from hist.
-settings$diploid <- 0 # Will stay zero if failure
-ploidyfile <- list.files(settings$merqurydir,'*ploidy')[1]
-if(settings$boundary == "ploidy"){
-  settings$boundary <- ploidyfile
-}
-if(file.exists(settings$boundary)){
-  ploidyfile <- settings$boundary
-  if(endsWith(ploidyfile,"ploidy")){
-    logWrite(paste('Using ploidy file',ploidyfile,'to set boundaries.'))
-    ploidy <- read.delim(paste0(settings$merqurydir,'/',ploidyfile))
-    settings$diploid <- ploidy$depth[3]
-    boundary <- tibble(assembly="*",haploid=ploidy$depth[2],diploid=ploidy$depth[3],low=ploidy$boundary[1],mid=ploidy$boundary[2],high=ploidy$boundary[3])
-  }else{
-    kmerTab <- loadHist(ploidyfile)
-    settings$diploid <- densityDiploid(kmerTab)
-    boundary <- makeBoundary(settings$diploid)
-  }
-}
-
-if(nrow(ploidy) > 0){
-  kable(ploidy, "html", caption = "Ploidy boundaries.", align = "l") %>% kable_styling("striped", full_width = F)
-}
-if(nrow(boundary) > 0){
-  kable(boundary, "html", caption = "Ploidy boundaries.", align = "l") %>% kable_styling("striped", full_width = F)
-}
-
-#kdip <- densityDiploid(gdb)
-```
-
-### Load hist tables
+## Load hist tables
 
 Generate `Table1` from the hist files.
 
@@ -298,6 +218,7 @@ Tab1 <- Tab1 %>% mutate_all(~ replace(., is.na(.), 0))
 ```
 
 
+
 ### Reference-normalised scores
 
 Generate `Table2` from `Table1`, with all values relative to reference.
@@ -331,7 +252,7 @@ At this point, we have two "wide" tables of the kmer counts for each genome that
 
 ### Classification table
 
-Generate `Table3`. This is a "long" version of Table 1, with the addition of a `knum` field. `afreq` and `rfreq` are then converted to the categories based on `afreq` and ploidy.
+Generate `Table3`. This is a "long" version of Table 1, with the addition of a `knum` field. `afreq` and `rfreq` are then converted to the categories based on `afreq` and ploidy. Assembly-only kmers are arbitrarily given haploid or diploid kmer frequencies for the purposes of calculating the total kmer percentage for these categories.
 
 ```{r Table3}
 #!# Update this to join with a boundaries table first to allow different boundaries per assembly, then do the ratings.
