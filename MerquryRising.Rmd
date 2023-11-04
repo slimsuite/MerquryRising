@@ -402,26 +402,81 @@ makeTab5 <- function(D){
 }
 D <- makeTab5(D)
 
+#i# Stacked bar plot of MerquryRising kmer classes
+classPlot <- function(pTab,saveplot=TRUE,ptype="class"){
+  p <- ggplot(pTab, aes(x = percentage, y = G, fill = class)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = rev(classcol)) +
+    labs(x = "Percentage", y = "Assembly") +
+    theme_minimal()
+  if(saveplot){
+    saveBarplots(p,length(unique(pTab$G)),ptype)
+  }
+  return(p)
+}
 
-p <- ggplot(D$Tab5, aes(x = percentage, y = G, fill = class)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = rev(classcol)) +
-  labs(x = "Percentage", y = "Assembly") +
-  theme_minimal()
-print(p)
 
 # Considered sigfig=3 but digits=2 is probably more useful
 kable(D$Tab5w, "html", caption = "Kmer classification (percentage).", align = "l") %>% kable_styling("striped", full_width = F)
 
-
-# [ ] Save to PDF
-# pdfwidth <- settings$pdfwidth
-# pdfheight <- 1 + 2*length(settings$order)
-
+p <- classPlot(D$Tab5)
+print(p)
+```
 
 
+
+```{r relpurge}
+#i# Use Tab4w and Tab5w for difference versus reference tables and plots (next section)
 # - Reshape `Table5` and `Table4` wide and convert into difference versus reference. Generate difference plots.
 
+makeRelPurge <- function(D){
+  if(settings$reference %in% D$adb$name){
+    refG <- D$adb[settings$reference == D$adb$name,]$G
+  }else{
+    if(settings$reference != "default"){
+      logWrite(paste("Cannot find reference:",settings$reference))
+    }
+    #!# Add option to use a number to pick the reference
+  }
+  Tab4rel <- D$Tab4w %>% left_join(D$adb %>% select(label,G) %>% rename(assembly=label))
+  D$Tab4rel <- Tab4rel
+  Tab5rel <- D$Tab5w %>% left_join(D$adb %>% select(label,G) %>% rename(assembly=label))
+  D$Tab5rel <- Tab5rel
+  prevG <- D$adb$G[1]
+  for(G in D$adb$G){
+    if(settings$reference == "default"){
+      refG <- prevG
+      prevG <- G
+    }
+    dcol <- 2:9
+    D$Tab4rel[Tab4rel$G==G,dcol] <- Tab4rel[Tab4rel$G==G,dcol] - Tab4rel[Tab4rel$G==refG,dcol]
+    dcol <- 2:11
+    D$Tab5rel[Tab5rel$G==G,dcol] <- Tab5rel[Tab5rel$G==G,dcol] - Tab5rel[Tab5rel$G==refG,dcol]
+  }
+  #i# These are wide tables so rename!
+  D$Tab4relw <- D$Tab4rel
+  D$Tab5relw <- D$Tab5rel
+  
+  #i# Generate the long versions
+  D$Tab4rel <- D$Tab4relw %>% select(-qv,-completeness) %>% pivot_longer(cols=only:over,names_to="purge",values_to="percentage") %>% select(-G) %>% rename(G=assembly)
+  D$Tab4rel$purge <- ordered(D$Tab4rel$purge,levels=rev(c("only","n/a","under","over","neutral","good")))
+  D$Tab4rel$G <- ordered(D$Tab4rel$G,levels=rev(D$adb$label))
+
+  D$Tab5rel <- D$Tab5relw %>% pivot_longer(cols=only:missing,names_to="class",values_to="percentage") %>% select(-G) %>% rename(G=assembly)
+  D$Tab5rel$class <- ordered(D$Tab5rel$class,levels=rev(c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing")))
+  D$Tab5rel$G <- ordered(D$Tab5rel$G,levels=rev(D$adb$label))
+  return(D)
+}
+D <- makeRelPurge(D)
+
+
+kable(D$Tab4relw,"html", caption = "Relative purge rating (percentage).", align = "l") %>% kable_styling("striped", full_width = F)
+p <- purgePlot(D$Tab4rel,ptype="relrating")
+print(p)
+
+kable(D$Tab5relw, "html", caption = "Relative Kmer classification (percentage).", align = "l") %>% kable_styling("striped", full_width = F)
+p <- classPlot(D$Tab5rel,ptype="relclass")
+print(p)
 ```
 
 
@@ -437,6 +492,13 @@ kable(D$Tab5w, "html", caption = "Kmer classification (percentage).", align = "l
 These plots have been converted into relative values compared to the reference assembly. The reference assembly will have the full Merqury plot. Note that the read-only kmers (`afreq`=0) may be truncated.
 
 ```{r plotsVsRef, results='asis'}
+### ~ Relative change data/plots ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+#i# This function generates the relative change output for assembly i of D$adb
+# relChange <- function(i){
+#   return()
+# }
+
+#!# Tweak the labels and naming: use labels for heading but include full name and file in text.
 
 for(i in 1:nrow(D$adb)){
   pref = FALSE
@@ -459,18 +521,51 @@ for(i in 1:nrow(D$adb)){
     ytitle <- "No. distinct kmers"
   }
   G <- D$adb$G[i]
+  # Pull out the data to plot for genome G: rename the G field and dump the rest
   dat <- pTab %>% rename(knum=!!G) %>% select(afreq,rfreq,knum)
   p <- merquryPlot(dat,ytitle,G)
   cat(paste('###',D$adb$name[i],'\n\n'))
   
-  print(kable(D$adb[i,], "html", caption = D$adb$name[i], align = "l") %>% kable_styling("striped", full_width = F))
+  #print(kable(D$adb[i,], "html", caption = D$adb$name[i], align = "l") %>% kable_styling("striped", full_width = T))
+  
   cat(paste('\n\n'))
   if(! pref){
+    #!# Add the relative changes from Tab4w/Tab4relw and Tab5w/Tab5relw
+    ai <- D$adb$label[i]
+    aj <- D$adb[D$adb$name == refname,]$label[1]
+
+    reltab <- bind_rows(D$Tab4w %>% filter(assembly==!!aj),
+                        D$Tab4relw %>% filter(assembly==!!ai),
+                        D$Tab4w %>% filter(assembly==!!ai)) %>% select(-G)
+    reltab$assembly[2] <- "change"
+    kcap <- paste0('Relative purge rating of ',ai,' versus ',aj)
+    print(kable(reltab, "html", caption = kcap, align = "l") %>% kable_styling("striped", full_width = T))
+
+    reltab <- bind_rows(D$Tab5w %>% filter(assembly==!!aj),
+                    D$Tab5relw %>% filter(assembly==!!ai),
+                    D$Tab5w %>% filter(assembly==!!ai)) %>% select(-G)
+    reltab$assembly[2] <- "change"
+    kcap <- paste0('Relative kmer classes of ',ai,' versus ',aj)
+    print(kable(reltab, "html", caption = kcap, align = "l") %>% kable_styling("striped", full_width = T))
+        
     cat(paste0('\n\nRelative change of ',D$adb$name[i],' versus ',refname,':\n\n'))
   }else{
+    ai <- D$adb$label[i]
+
+    reltab <-D$Tab4w %>% filter(assembly==!!ai)
+    kcap <- paste0('Purge rating of ',ai)
+    print(kable(reltab, "html", caption = kcap, align = "l") %>% kable_styling("striped", full_width = T))
+
+    reltab <- D$Tab5w %>% filter(assembly==!!ai)
+    kcap <- paste0('kmer classes for ',ai)
+    print(kable(reltab, "html", caption = kcap, align = "l") %>% kable_styling("striped", full_width = T))
     cat(paste0('\n\nMerqury plot for ',D$adb$name[i],'.\n\n'))
   }
-  print(p)
+  if(max(dat$knum) > 0){
+    print(p)
+  }else{
+    cat(paste0('No change!\n\n'))
+  }
   #cat(paste0('\n\n**Plot of relative change versus',refname,'.**\n\n'))
   cat('\n\n')
 }
