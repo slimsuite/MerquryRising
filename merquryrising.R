@@ -55,6 +55,7 @@ library(RColorBrewer)
 library(writexl)
 library(kableExtra)
 library(tools)
+library(patchwork)
 
 ### ~ Commandline arguments ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
 defaults = list(basefile="merquryrising",   # Prefix for output files (log and plots)
@@ -71,8 +72,8 @@ defaults = list(basefile="merquryrising",   # Prefix for output files (log and p
                 makexlsx=FALSE,             # Make TRUE to generate compiled Excel file
                 outlog=stdout(),            # Change to filename for log output.
                 digits=3,                   # Number of decimal places for tabular outpur
-                pngwidth=1200,pngheight=900,pointsize=24,plotdir="plots",
-                pdfwidth=10,pdfheight=0,pdfscale=1,namesize=1,labelsize=1,
+                pngwidth=1200,pngheight=600,pointsize=24,plotdir="plots",
+                pdfwidth=12,pdfheight=4,pdfscale=1,namesize=1,labelsize=1,
                 reference="default",
                 rscript=TRUE,debug=FALSE,dev=FALSE,fullrun=TRUE,tutorial=FALSE,
                 rdir="",

@@ -53,7 +53,7 @@ knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE
 # [ ] : Update to process the diploid ASM data with the haplotype-specific and shared kmers.
 # [ ] : Add capacity to parse qv and completeness from collated tables and map via name.
 # [ ] : Rationalise the dimensions of the output graphics.
-# [ ] : Do not generate relative purge plot if no change! Just report a lack of difference. (Tabulate the difference.)
+# [X] : Do not generate relative purge plot if no change! Just report a lack of difference. (Tabulate the difference.)
 
 # NOTES
 #!# Consider setting results='asis' to avoid wrapping in ```.
@@ -301,7 +301,7 @@ D <- makeTab3(D)
 
 # Results
 
-## Purge classification plots
+## Purge classification
 
 
 
@@ -337,20 +337,28 @@ D <- makeTab4(D)
 kable(D$Tab4w,"html", caption = "Purge rating (percentage).", align = "l") %>% kable_styling("striped", full_width = F)
 
 
-#i# Generic plot saving function. Adjust height by data rows.
+#i# Generic plot saving function. Adjust height by data rows if nrows > 0.
 saveBarplots <- function(plt,nrows=0,ptype="stackedbar"){
+  savePlot(plt,nrows,ptype)
+}
+savePlot <- function(plt,nrows=0,ptype="stackedbar"){
   if(! dir.exists(settings$plotdir)){
     dir.create(settings$plotdir)
   }
   #i# Save PDF
   plotfile <- paste0(settings$basefile,".",ptype,".pdf")
   pdfwidth <- settings$pdfwidth
-  pdfheight <- (1 + nrows) / 2
+  pdfheight <- settings$pdfheight
+  if(nrows > 0){
+    pdfheight <- (1 + nrows) / 2
+  }
   ggsave(plotfile,plot=plt,device="pdf",path=settings$plotdir,width=pdfwidth,height=pdfheight,scale=settings$pdfscale,limitsize = FALSE)
   logWrite(paste0('#GGSAVE Saved output plot to ',settings$plotdir,"/",plotfile))
   #i# Save PNG
   pngwidth <- settings$pngwidth
-  pngheight <- 80 + 120 * nrows
+  if(nrows > 0){
+    pngheight <- 80 + 120 * nrows
+  }
   plotfile <- paste0(settings$basefile,".",ptype,".png")
   ggsave(plotfile,plot=plt,device="png",path=settings$plotdir,width=pdfwidth,height=pdfheight,scale=settings$pdfscale,limitsize = FALSE)
   logWrite(paste0('#GGSAVE Saved output plot to ',settings$plotdir,"/",plotfile))
@@ -423,7 +431,7 @@ p <- classPlot(D$Tab5)
 print(p)
 ```
 
-
+## Relative purge classification
 
 ```{r relpurge}
 #i# Use Tab4w and Tab5w for difference versus reference tables and plots (next section)
@@ -473,10 +481,12 @@ D <- makeRelPurge(D)
 kable(D$Tab4relw,"html", caption = "Relative purge rating (percentage).", align = "l") %>% kable_styling("striped", full_width = F)
 p <- purgePlot(D$Tab4rel,ptype="relrating")
 print(p)
+savePlot(p,nrow(D$Tab4relw),ptype="relrating")
 
 kable(D$Tab5relw, "html", caption = "Relative Kmer classification (percentage).", align = "l") %>% kable_styling("striped", full_width = F)
 p <- classPlot(D$Tab5rel,ptype="relclass")
 print(p)
+savePlot(p,nrow(D$Tab5relw),ptype="relclass")
 ```
 
 
@@ -491,16 +501,11 @@ print(p)
 
 These plots have been converted into relative values compared to the reference assembly. The reference assembly will have the full Merqury plot. Note that the read-only kmers (`afreq`=0) may be truncated.
 
-```{r plotsVsRef, results='asis'}
+```{r plotsVsRef, eval=FALSE, include=FALSE, results='asis'}
 ### ~ Relative change data/plots ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
 #i# This function generates the relative change output for assembly i of D$adb
-# relChange <- function(i){
-#   return()
-# }
-
-#!# Tweak the labels and naming: use labels for heading but include full name and file in text.
-
-for(i in 1:nrow(D$adb)){
+#i# This initial version does not use the two-panel plotting.
+relChangeV1 <- function(i){
   pref = FALSE
   pTab <- D$Tab2
   ytitle <- "kmer count shift" 
@@ -568,15 +573,96 @@ for(i in 1:nrow(D$adb)){
   }
   #cat(paste0('\n\n**Plot of relative change versus',refname,'.**\n\n'))
   cat('\n\n')
+  return()
+}
+```
+
+```{r plotsVsRef2, results='asis', fig.width=12, fig.height=4}
+### ~ Relative change data/plots ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+#i# This function generates the relative change output for assembly i of D$adb
+#i# This  version uses two-panel plotting.
+relChange <- function(i){
+  #># First, set the reference
+  pref = FALSE
+  if(settings$reference == "default"){
+    if(i < 2){
+      pref <- TRUE
+    }
+    refname <- D$adb$name[i-1]
+  }
+  if(settings$reference == D$adb$name[i]){
+    pref <- TRUE
+  }
+  if(settings$reference %in% D$adb$name){
+    refname <- settings$reference
+  }
+  #># Set the variables for this assembly version
+  G <- D$adb$G[i]
+  Gname <- D$adb$name[i]
+  Glabel <- D$adb$label[i]
+  Gbase <- D$adb$base[i]
+  
+  #># Output summary information/tables
+  cat(paste('###',Glabel,'\n\n'))
+  if(! pref){
+    cat(paste0("Merqury kmer statistics and relative purge stats for ",Gname," (`",Gbase,".*`)."))  
+    cat(paste('\n\n'))
+    ai <- D$adb$label[i]
+    aj <- D$adb[D$adb$name == refname,]$label[1]
+
+    reltab <- bind_rows(D$Tab4w %>% filter(assembly==!!aj),
+                        D$Tab4relw %>% filter(assembly==!!ai),
+                        D$Tab4w %>% filter(assembly==!!ai)) %>% select(-G)
+    reltab$assembly[2] <- "change"
+    kcap <- paste0('Relative purge rating of ',ai,' versus ',aj)
+    print(kable(reltab, "html", caption = kcap, align = "l") %>% kable_styling("striped", full_width = T))
+
+    reltab <- bind_rows(D$Tab5w %>% filter(assembly==!!aj),
+                    D$Tab5relw %>% filter(assembly==!!ai),
+                    D$Tab5w %>% filter(assembly==!!ai)) %>% select(-G)
+    reltab$assembly[2] <- "change"
+    kcap <- paste0('Relative kmer classes of ',ai,' versus ',aj)
+    print(kable(reltab, "html", caption = kcap, align = "l") %>% kable_styling("striped", full_width = T))
+        
+    cat(paste0('\n\nRelative change of ',D$adb$name[i],' versus ',refname,':\n\n'))
+  }else{
+    cat(paste0("Merqury kmer statistics for ",Gname," (`",Gbase,".*`). (No reference.)"))  
+    cat(paste('\n\n'))
+    ai <- D$adb$label[i]
+
+    reltab <-D$Tab4w %>% filter(assembly==!!ai)
+    kcap <- paste0('Purge rating of ',ai)
+    print(kable(reltab, "html", caption = kcap, align = "l") %>% kable_styling("striped", full_width = T))
+
+    reltab <- D$Tab5w %>% filter(assembly==!!ai)
+    kcap <- paste0('kmer classes for ',ai)
+    print(kable(reltab, "html", caption = kcap, align = "l") %>% kable_styling("striped", full_width = T))
+    cat(paste0('\n\nMerqury plot for ',D$adb$name[i],'.\n\n'))
+  }
+  
+  # Two panel plots
+  # Pull out the data to plot for genome G: rename the G field and dump the rest
+  pTab <- D$Tab1
+  ytitle <- "No. distinct kmers"
+  dat <- pTab %>% rename(knum=!!G) %>% select(afreq,rfreq,knum)
+  p1 <- merquryPlot(dat,ytitle,G)
+  # Second panel
+  pTab <- D$Tab2
+  ytitle <- "kmer count shift" 
+  dat <- pTab %>% rename(knum=!!G) %>% select(afreq,rfreq,knum)
+  p2 <- merquryPlot(dat,ytitle,G)
+  # Two-panel plot with patchwork  
+  p <- p1 + p2
+  print(p)
+  cat('\n\n')
+  savePlot(p,ptype=Glabel)
+  return()
 }
 
-#!# Add percentage tables, along with  the reference and difference.
-
-#i# Convert into relative values
-#D$Tab4rel <- D$Tab4w  # Converted into relative values.
-#D$Tab5rel <- D$Tab5w  # Converted into relative values.
-
-
+#i# Generate the relative kmer output for each assembly
+for(i in 1:nrow(D$adb)){
+  relChange(i)
+}
 ```
 
 
