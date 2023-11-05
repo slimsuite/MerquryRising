@@ -1,7 +1,7 @@
 ########################################################
 ### Merqury Rising: Kmer-based QV Assessment   ~~~~~ ###
-### VERSION: 0.2.0                             ~~~~~ ###
-### LAST EDIT: 03/11/23                        ~~~~~ ###
+### VERSION: 0.3.0                             ~~~~~ ###
+### LAST EDIT: 06/11/23                        ~~~~~ ###
 ### AUTHORS: Richard Edwards 2023              ~~~~~ ###
 ### CONTACT: rich.edwards@uwa.edu.au           ~~~~~ ###
 ########################################################
@@ -10,7 +10,8 @@
 
 ####################################### ::: HISTORY ::: ############################################
 # v0.2.0 : Initial version, numbered to mirror the corresponding Rmd file.
-version = "v0.2.0"
+# v0.3.0 - Moved all the main functions to merquryrising.R.
+version = "v0.3.0"
 
 ####################################### ::: USAGE ::: ############################################
 # Example use:
@@ -223,7 +224,7 @@ densityDiploid <- function(kmerTab,minfreq=5,maxfreq=1000,adjust=1,plot=TRUE){
   kdens = density(kvec,n=n) #,adjust=adjust)
   kdiploid <- kdens$x[kdens$y == max(kdens$y)]
   khaploid <- kdiploid / 2
-  logWrite(paste("Peak kmer frequency:",kdiploid))
+  logWrite(paste("Peak kmer frequency:",round(kdiploid,2)))
   if(plot){
     plot(kdens,xlim=c(0,kdiploid*2))
     abline(v=kdiploid,col="blue")
@@ -291,6 +292,7 @@ setInputFiles <- function(){
   return(adb)
 }
 
+### ~~~~~~~~~~~~~~~~ Table 1 ~~~~~~~~~~~~~~~~ ###
 #i# makeTab1 is the main Histogram loading function.
 # - Load the `*.spectra-cn.hist` data tables into tibbles with 3 fields: `afreq` (kmer frequency in assembly), `rfreq` (kmer frequency in reads) and `knum` (number of different kmers).
 makeTab1 <- function(D){
@@ -322,6 +324,9 @@ makeTab1 <- function(D){
       }
     }
   }
+  # Round to 2 d.p.
+  D$boundary %>%
+    mutate_at(vars(haploid ,diploid ,low ,mid ,high), round, 2)
   summary(D$boundary)
   # - Fill out the NA values in Tab1 with zeros
   D$Tab1 <- Tab1 %>% mutate_all(~ replace(., is.na(.), 0))
@@ -330,6 +335,184 @@ makeTab1 <- function(D){
 
 ##### =========================== Process Data Functions ========================== #####
 
+### ~~~~~~~~~~~~~~~~ Table 2 ~~~~~~~~~~~~~~~~ ###
+# - Convert `Table1` into a version of all values relative to reference. [`Table2`]
+#i# If settings$reference is `default`, will use the previous genome as the reference in each case
+#i# Otherwise, will compare all to a specific reference
+makeTab2 <- function(D){
+  if(settings$reference %in% D$adb$name){
+    refG <- D$adb[settings$reference == D$adb$name,]$G
+  }else{
+    if(settings$reference != "default"){
+      logWrite(paste("Cannot find reference:",settings$reference))
+    }
+    #!# Add option to use a number to pick the reference
+  }
+  Tab2 <- D$Tab1
+  prevG <- D$adb$G[1]
+  for(G in D$adb$G){
+    if(settings$reference == "default"){
+      refG <- prevG
+      prevG <- G
+    }
+    Tab2[[G]] <- D$Tab1[[G]] - D$Tab1[[refG]]
+  }
+  D$Tab2 <- Tab2
+  return(D)
+}
+
+
+### ~~~~~~~~~~~~~~~~ Table 3 ~~~~~~~~~~~~~~~~ ###
+# - Convert `Table1` into a long version [`Table3`] -> `knum` and `assembly`.
+#!# Add report of full ksize and then calculate the %assembly-only and adjust "collapsed"
+makeTab3 <- function(D){
+  Tab3 <- D$Tab1 %>%
+    pivot_longer(
+      cols = starts_with("G"),
+      names_to = "assembly",
+      names_prefix = "G",
+      values_to = "knum"
+    ) %>% mutate(assembly = as.integer(assembly))
+  # - Convert `Table3` `rfreq` into categories based on `ploidy`: `low`, `hap`, `dip`, `high`.
+  if("*" %in% D$boundary$G){
+    bi <- rep(1,nrow(Tab3))
+  }else{
+    bi <- Tab3$assembly
+  }
+  Tab3$ploidy <- "none"
+  Tab3[Tab3$rfreq > 0,]$ploidy <- "low"
+  Tab3[Tab3$rfreq > D$boundary$low[bi],]$ploidy <- "hap"
+  Tab3[Tab3$rfreq > D$boundary$mid[bi],]$ploidy <- "dip"
+  Tab3[Tab3$rfreq > D$boundary$high[bi],]$ploidy <- "high"
+  Tab3$ploidy <- ordered(Tab3$ploidy,levels=c("none","low","hap","dip","high"))
+  # - Create a `Table3` `class` field, based on `afreq` and `rfreq`
+  Tab3$atype <- "3+"
+  Tab3[Tab3$afreq < 3,]$atype <- "2"
+  Tab3[Tab3$afreq < 2,]$atype <- "1"
+  Tab3[Tab3$afreq < 1,]$atype <- "0"
+  Tab3$atype <- ordered(Tab3$atype,levels=c("0","1","2","3+"))
+  # - Generate the kfreq field = knum x rfreq
+  # - If settings$only=TRUE, will add a fake rfreq according to the ploidy
+  if(settings$only){
+    bhap <- Tab3$afreq == 1 & Tab3$rfreq == 0
+    Tab3[bhap,]$rfreq <- D$boundary$haploid[bi][bhap]
+    bdip <- Tab3$afreq == 2 & Tab3$rfreq == 0
+    Tab3[bdip,]$rfreq <- D$boundary$diploid[bi][bdip]
+  }
+  Tab3 <- Tab3 %>% 
+    group_by(atype,ploidy,assembly) %>%
+    summarise(kfreq = sum(knum * rfreq)) %>%
+    rename(afreq=atype, rfreq=ploidy) %>%
+    left_join(D$kclassdb)
+  Tab3$purge <- ordered(Tab3$purge,levels=c("only","n/a","under","good","neutral","over"))
+  Tab3$class <- ordered(Tab3$class,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
+  Tab3$dippurge <- ordered(Tab3$dippurge,levels=c("only","n/a","under","good","neutral","over"))
+  Tab3$dipclass <- ordered(Tab3$dipclass,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
+  #!# Update to account for haploid and diploid assemblies
+  dips <- endsWith(D$adb$name,"dip") | endsWith(D$adb$label,"dip")
+  if(settings$ploidy == "hap"){ dips <- FALSE }
+  if(settings$ploidy == "dip"){ dips <- TRUE }
+  if(sum(dips) > 0){
+    dipi <- dips[Tab3$assembly]
+    Tab3[dipi,]$purge <- Tab3[dipi,]$dippurge
+    Tab3[dipi,]$class <- Tab3[dipi,]$dipclass
+  }
+  D$Tab3 <- Tab3 %>% select(-dippurge, -dipclass)
+  return(D)
+}
+
+### ~~~~~~~~~~~~~~~~ Table 4 ~~~~~~~~~~~~~~~~ ###
+# - Create a `Table4` from `Table3` with the broader `purge` categories
+makeTab4 <- function(D){
+  Tab4 <- D$Tab3 %>%
+    select(-class) %>%
+    group_by(purge,assembly) %>%
+    summarise(kfreq = sum(kfreq)) %>%
+    group_by(assembly) %>%
+    mutate(percentage = (kfreq / sum(kfreq)) * 100) 
+  
+  #Tab4$G <- ordered(adb$G[Tab4$assembly],levels=rev(adb$G))
+  Tab4$G <- ordered(D$adb$label[Tab4$assembly],levels=rev(D$adb$label))
+  Tab4$purge <- ordered(Tab4$purge,levels=rev(c("only","n/a","under","over","neutral","good")))
+  
+  D$Tab4 <- Tab4 %>%
+    mutate(percentage = num(percentage, digits = settings$digits))
+  
+  D$Tab4w <- D$Tab4 %>% 
+    pivot_wider(id_cols = G, names_from = purge, values_from = percentage) %>%
+    left_join(D$adb %>% select(label,completeness,qv) %>% rename(G=label)) %>%
+    mutate(completeness = num(completeness, digits = 2)) %>%
+    mutate(qv = num(qv, digits = 2)) %>%
+    rename(assembly=G)
+  
+  return(D)
+}
+
+### ~~~~~~~~~~~~~~~~ Table 5 ~~~~~~~~~~~~~~~~ ###
+# - Collapse by `class` and sum up the `knum` [`Table5`]
+makeTab5 <- function(D){
+  Tab5 <- D$Tab3 %>%
+    select(-purge) %>%
+    group_by(class,assembly) %>%
+    summarise(kfreq = sum(kfreq)) %>%
+    group_by(assembly) %>%
+    mutate(percentage = (kfreq / sum(kfreq)) * 100) 
+  
+  #Tab5$G <- ordered(adb$G[Tab5$assembly],levels=rev(adb$G))
+  Tab5$G <- ordered(D$adb$label[Tab5$assembly],levels=rev(D$adb$label))
+  Tab5$class <- ordered(Tab5$class,levels=rev(levels(Tab5$class)))
+  
+  D$Tab5 <- Tab5 %>% 
+    mutate(percentage = num(percentage, digits = settings$digits))
+  
+  D$Tab5w <- D$Tab5 %>% 
+    pivot_wider(id_cols = G, names_from = class, values_from = percentage) %>%
+    rename(assembly=G)
+  return(D)
+}
+
+
+### ~~~~~~~~~~~~~~~~ Table 4 & 5 relative value versions ~~~~~~~~~~~~~~~~ ###
+#i# Use Tab4w and Tab5w for difference versus reference tables and plots (next section)
+# - Reshape `Table5` and `Table4` wide and convert into difference versus reference. Generate difference plots.
+makeRelPurge <- function(D){
+  if(settings$reference %in% D$adb$name){
+    refG <- D$adb[settings$reference == D$adb$name,]$G
+  }else{
+    if(settings$reference != "default"){
+      logWrite(paste("Cannot find reference:",settings$reference))
+    }
+    #!# Add option to use a number to pick the reference
+  }
+  Tab4rel <- D$Tab4w %>% left_join(D$adb %>% select(label,G) %>% rename(assembly=label))
+  D$Tab4rel <- Tab4rel
+  Tab5rel <- D$Tab5w %>% left_join(D$adb %>% select(label,G) %>% rename(assembly=label))
+  D$Tab5rel <- Tab5rel
+  prevG <- D$adb$G[1]
+  for(G in D$adb$G){
+    if(settings$reference == "default"){
+      refG <- prevG
+      prevG <- G
+    }
+    dcol <- 2:9
+    D$Tab4rel[Tab4rel$G==G,dcol] <- Tab4rel[Tab4rel$G==G,dcol] - Tab4rel[Tab4rel$G==refG,dcol]
+    dcol <- 2:11
+    D$Tab5rel[Tab5rel$G==G,dcol] <- Tab5rel[Tab5rel$G==G,dcol] - Tab5rel[Tab5rel$G==refG,dcol]
+  }
+  #i# These are wide tables so rename!
+  D$Tab4relw <- D$Tab4rel
+  D$Tab5relw <- D$Tab5rel
+  
+  #i# Generate the long versions
+  D$Tab4rel <- D$Tab4relw %>% select(-qv,-completeness) %>% pivot_longer(cols=only:over,names_to="purge",values_to="percentage") %>% select(-G) %>% rename(G=assembly)
+  D$Tab4rel$purge <- ordered(D$Tab4rel$purge,levels=rev(c("only","n/a","under","over","neutral","good")))
+  D$Tab4rel$G <- ordered(D$Tab4rel$G,levels=rev(D$adb$label))
+  
+  D$Tab5rel <- D$Tab5relw %>% pivot_longer(cols=only:missing,names_to="class",values_to="percentage") %>% select(-G) %>% rename(G=assembly)
+  D$Tab5rel$class <- ordered(D$Tab5rel$class,levels=rev(c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing")))
+  D$Tab5rel$G <- ordered(D$Tab5rel$G,levels=rev(D$adb$label))
+  return(D)
+}
 
 
 ############################## ::: PLOTTING FUNCTIONS ::: #################################
@@ -403,6 +586,63 @@ classcol <- mqrcol[c(1:9,11)]
 classcoldf <- tibble(class=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"),
                      classcol=classcol)
 
+### ~~~~~~~~~~~~~~~~ Generic plot saving to PDF and PNG ~~~~~~~~~~~~~~~~ ###
+#i# Generic plot saving function. Adjust height by data rows if nrows > 0.
+saveBarplots <- function(plt,nrows=0,ptype="stackedbar"){
+  savePlot(plt,nrows,ptype)
+}
+savePlot <- function(plt,nrows=0,ptype="stackedbar"){
+  if(! dir.exists(settings$plotdir)){
+    dir.create(settings$plotdir)
+  }
+  #i# Save PDF
+  plotfile <- paste0(settings$basefile,".",ptype,".pdf")
+  pdfwidth <- settings$pdfwidth
+  pdfheight <- settings$pdfheight
+  if(nrows > 0){
+    pdfheight <- (1 + nrows) / 2
+  }
+  ggsave(plotfile,plot=plt,device="pdf",path=settings$plotdir,width=pdfwidth,height=pdfheight,scale=settings$pdfscale,limitsize = FALSE)
+  logWrite(paste0('#GGSAVE Saved output plot to ',settings$plotdir,"/",plotfile))
+  #i# Save PNG
+  pngwidth <- settings$pngwidth
+  if(nrows > 0){
+    pngheight <- 80 + 120 * nrows
+  }
+  plotfile <- paste0(settings$basefile,".",ptype,".png")
+  ggsave(plotfile,plot=plt,device="png",path=settings$plotdir,width=pdfwidth,height=pdfheight,scale=settings$pdfscale,limitsize = FALSE)
+  logWrite(paste0('#GGSAVE Saved output plot to ',settings$plotdir,"/",plotfile))
+}
+
+### ~~~~~~~~~~~~~~~~ Purge Rating stracked plot ~~~~~~~~~~~~~~~~ ###
+#i# Purge rating stacked bar plot. Designed to take D$Tab4 as input
+purgePlot <- function(pTab,saveplot=TRUE,ptype="rating"){
+  p <- ggplot(pTab, aes(x = percentage, y = G, fill = purge)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = rev(purgecol)) +
+    labs(x = "Percentage", y = "Assembly") +
+    theme_minimal()
+  if(saveplot){
+    saveBarplots(p,length(unique(pTab$G)),ptype)
+  }
+  return(p)
+}
+
+### ~~~~~~~~~~~~~~~~ Kmer class stracked plot ~~~~~~~~~~~~~~~~ ###
+#i# Stacked bar plot of MerquryRising kmer classes
+classPlot <- function(pTab,saveplot=TRUE,ptype="class"){
+  p <- ggplot(pTab, aes(x = percentage, y = G, fill = class)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = rev(classcol)) +
+    labs(x = "Percentage", y = "Assembly") +
+    theme_minimal()
+  if(saveplot){
+    saveBarplots(p,length(unique(pTab$G)),ptype)
+  }
+  return(p)
+}
+
+
 ############################## ::: PRE-PROCESSING DATA ::: #################################
 #i# This section generates any data that is not wrapped up in a function but still needed for the tutorial Rmd.
 
@@ -451,10 +691,24 @@ if(settings$rscript){
 }
 
 ##### =========================== Process Data ========================== #####
+if(settings$rscript){
+  D <- makeTab2(D)
+  D <- makeTab3(D)
+  D <- makeTab4(D)
+  D <- makeTab5(D)
+  D <- makeRelPurge(D)
+}
 
 ##### ==================== Generate Tables and Plots ==================== #####
-
-#dir.create(settings$plotdir, showWarnings = FALSE)
+if(settings$rscript){
+  dir.create(settings$plotdir, showWarnings = FALSE)
+  p <- purgePlot(D$Tab4)
+  p <- classPlot(D$Tab5)
+  p <- purgePlot(D$Tab4rel,ptype="relrating")
+  savePlot(p,nrow(D$Tab4relw),ptype="relrating")
+  p <- classPlot(D$Tab5rel,ptype="relclass")
+  savePlot(p,nrow(D$Tab5relw),ptype="relclass")
+}
 
 
 ##### ======================== Tidy and Finish ======================== #####
