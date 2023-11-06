@@ -1,8 +1,8 @@
 ---
 title: "Merqury Rising: Kmer-based QV Assessment"
 author: "Richard J. Edwards"
-date: "06/11/2023"
-version: "v0.3.0"
+date: "07/11/2023"
+version: "v0.4.0"
 output:
   html_document:
     #css: http://www.slimsuite.unsw.edu.au/stylesheets/slimhtml.css
@@ -36,6 +36,7 @@ knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE
 # v0.1.0 - Initial draft version.
 # v0.2.0 - Added config file to settings.
 # v0.3.0 - Moved all the main functions to merquryrising.R.
+# v0.4.0 - Add tabular output of purge classification.
 
 # TO DO
 # [Y] : Implement reading of setting from merquryrising.config.
@@ -56,13 +57,15 @@ knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE
 # [ ] : Rationalise the dimensions of the output graphics.
 # [X] : Do not generate relative purge plot if no change! Just report a lack of difference. (Tabulate the difference.)
 # [ ] : Add report of full ksize and then calculate the %assembly-only and adjust "collapsed"
+# [ ] : Add default filter to restrict D$adb to the files with labels.
+# [ ] : Add a reference=None option and make an optimised distribution from D$Tab3.
 
 # NOTES
 #!# Consider setting results='asis' to avoid wrapping in ```.
 #?# I wonder if this is the solution for HTML output within loops?
 
 #i# Set defaults for the Rmd implementation that might be different from the standalone version
-override <- c('fullrun=FALSE','rdir=.','debug=FALSE','dev=TRUE')
+override <- c('fullrun=FALSE','rdir=.','debug=FALSE','dev=TRUE','makexlsx=TRUE')
 source('./merquryrising.R')
 ```
 
@@ -230,28 +233,26 @@ D <- makeTab3(D)
 
 
 ```{r Table4, fig.width=6, fig.height=3}
-# - Create a `Table4` from `Table3` with the `purge` categories (see below)
-D <- makeTab4(D)
-
+# - Create a `Table4` from `Table3` with the `purge` rating categories
 #i# Rounding to digits seems more useful than sigfig
+D <- makeTab4(D)
 kable(D$Tab4w,"html", caption = "Purge rating (percentage).", align = "l") %>% kable_styling("striped", full_width = F)
+saveToTSV(D$Tab4w %>% mutate_at(vars(only:qv), as.numeric),"rating","Purge rating (percentage)")
 
 # Generate and save the main purge plot
 p <- purgePlot(D$Tab4)
 print(p)
+```
 
 
-
-
-
-
+```{r Table5, fig.width=6, fig.height=3}
+# - Create a `Table5` from `Table3` with the detailed `purge` classes categories
+#i# Rounding to digits seems more useful than sigfig
 D <- makeTab5(D)
-
-
-
-# Considered sigfig=3 but digits=2 is probably more useful
 kable(D$Tab5w, "html", caption = "Kmer classification (percentage).", align = "l") %>% kable_styling("striped", full_width = F)
+saveToTSV(D$Tab5w %>% mutate_at(vars(only:missing), as.numeric),"class","Kmer classification (percentage)")
 
+# Generate and save the purge class plot
 p <- classPlot(D$Tab5)
 print(p)
 ```

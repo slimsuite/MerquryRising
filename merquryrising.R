@@ -1,7 +1,7 @@
 ########################################################
 ### Merqury Rising: Kmer-based QV Assessment   ~~~~~ ###
-### VERSION: 0.3.0                             ~~~~~ ###
-### LAST EDIT: 06/11/23                        ~~~~~ ###
+### VERSION: 0.4.0                             ~~~~~ ###
+### LAST EDIT: 07/11/23                        ~~~~~ ###
 ### AUTHORS: Richard Edwards 2023              ~~~~~ ###
 ### CONTACT: rich.edwards@uwa.edu.au           ~~~~~ ###
 ########################################################
@@ -11,7 +11,8 @@
 ####################################### ::: HISTORY ::: ############################################
 # v0.2.0 : Initial version, numbered to mirror the corresponding Rmd file.
 # v0.3.0 - Moved all the main functions to merquryrising.R.
-version = "v0.3.0"
+# v0.4.0 - Add tabular output of purge classification.
+version = "v0.4.0"
 
 ####################################### ::: USAGE ::: ############################################
 # Example use:
@@ -38,6 +39,7 @@ version = "v0.3.0"
 # [ ] : Complete full parsing of the config file.
 # [ ] : Make sure it can be run from the RMarkdown just to load the functions etc. without processing.
 # [ ] : Check and rationalise libraries.
+# [ ] : Add output of files.
 
 ####################################### ::: SETUP ::: ############################################
 ### ~ Load packages ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
@@ -129,7 +131,7 @@ for(cmd in c("histsort")){
   }
 }
 #i# logical parameters
-for(cmd in c("debug","dev","fullrun","tutorial")){
+for(cmd in c("debug","dev","fullrun","tutorial","makexlsx")){
   settings[[cmd]] = as.logical(settings[[cmd]])
 }
 
@@ -410,6 +412,7 @@ makeTab3 <- function(D){
   Tab3$dipclass <- ordered(Tab3$dipclass,levels=c("only","noise","lowQ","duplicate","alternate","haploid","diploid","repeats","collapsed","missing"))
   #!# Update to account for haploid and diploid assemblies
   dips <- endsWith(D$adb$name,"dip") | endsWith(D$adb$label,"dip")
+  dips <- dips[! is.na(dips)]
   if(settings$ploidy == "hap"){ dips <- FALSE }
   if(settings$ploidy == "dip"){ dips <- TRUE }
   if(sum(dips) > 0){
@@ -541,8 +544,8 @@ merquryPlot <- function(histTab,ytitle="kmer count shift",G="*"){
   dat <- histTab %>%
     filter(rfreq < as.numeric(bD$high)*2,afreq < 5)
   dat$afreq <- ordered(dat$afreq,levels=0:4)
-  ymin <- min(c(0,dat[dat$rfreq > 2,]$knum)) * 1.2
-  ymax <- max(c(10,dat[dat$rfreq > 2,]$knum)) * 1.2
+  ymin <- min(c(0,dat[dat$rfreq > 5,]$knum)) * 1.2
+  ymax <- max(c(10,dat[dat$rfreq > 5,]$knum)) * 1.2
   # if(max(histTab$knum) > ymax){
   #   histTab[histTab$knum > ymax,]$knum <- ymax
   # }
@@ -671,6 +674,35 @@ if(file.exists(settings$boundary)){
 }
 
 
+################################## ::: TABLE OUTPUT ::: #######################################
+### ~ Save Generic table ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+#i# Output table to verify details
+saveToTSV <- function(tTab,ttype="data",msg="MerquryRising"){
+  outfile = paste(settings$basefile,ttype,"tsv",sep=".",collapse=".")
+  logWrite(paste("#SAVE",nrow(tTab),msg,"table rows output to",outfile))
+  write.table(tTab,outfile,sep="\t",quote=FALSE,row.names=FALSE)
+}
+
+##### ======================== Save data to Excel ======================== #####
+### ~ Save all data to Excel ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
+saveToExcel <- function(){
+  logWrite(paste("#XLSX writexl package:",settings$writexl))
+  if(settings$writexl & settings$makexlsx){
+    #logWrite("#XLXS No Excel output: not yet supported.")
+    #return()
+    #!# Need to sort out the weird type error. Something to do with the rounding?
+    outfile = paste0(settings$basefile,".tables.xlsx")
+    write_xlsx(
+      x = D,
+      path = outfile
+    )
+    logWrite(paste("#XLSX Tabs:",paste(names(D),collapse=",")))
+    logWrite(paste("#SAVE","All MerquryRising data output to",outfile))
+  }else{
+    logWrite("#XLXS No Excel output: check makexlsx=T/F setting and writexl package installation if expected.")
+  }
+}
+
 
 ################################## ::: RUN CODE ::: #######################################
 #i# Tutorial mode will create the functions and pre-processing only. All the reporting and processing will form part of the Rmd.
@@ -701,6 +733,8 @@ if(settings$rscript){
 
 ##### ==================== Generate Tables and Plots ==================== #####
 if(settings$rscript){
+  saveToTSV(D$Tab4w %>% mutate_at(vars(only:qv), as.numeric),"rating","Purge rating (percentage)")
+  saveToTSV(D$Tab5w %>% mutate_at(vars(only:missing), as.numeric),"class","Kmer classification (percentage)")
   dir.create(settings$plotdir, showWarnings = FALSE)
   p <- purgePlot(D$Tab4)
   p <- classPlot(D$Tab5)
@@ -708,6 +742,7 @@ if(settings$rscript){
   savePlot(p,nrow(D$Tab4relw),ptype="relrating")
   p <- classPlot(D$Tab5rel,ptype="relclass")
   savePlot(p,nrow(D$Tab5relw),ptype="relclass")
+  saveToExcel()
 }
 
 

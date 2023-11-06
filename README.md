@@ -36,9 +36,17 @@ library(tools)
 5. Optionally, edit the Rmd and re-knit until you are happy.
 
 The Merqury files needed are:
-* Read kmer `*.hist.ploidy` file.
 * A set of `*.only.hist` files of assembly-only kmer counts.
 * A set of `*.spectra-cn.hist` files of read and assembly kmer counts.
+
+### Running the Rscript
+
+Alternatively, the `merquryrising.R` script can be run as:
+
+```
+Rscript merquryrising.R basefile=<PREFIX> [histfiles=<HISTFILES>] [labels=FOFN]
+```
+
 
 ## Troubleshooting
 
