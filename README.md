@@ -44,7 +44,7 @@ The Merqury files needed are:
 Alternatively, the `merquryrising.R` script can be run as:
 
 ```
-Rscript merquryrising.R basefile=<PREFIX> [histfiles=<HISTFILES>] [labels=FOFN]
+Rscript merquryrising.R basefile=<PREFIX> [histfiles=<HISTFILES>] [labels=FOFN] [makexlsx=TRUE]
 ```
 
 
