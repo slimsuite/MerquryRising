@@ -2,7 +2,7 @@
 title: "Merqury Rising: Kmer-based QV Assessment"
 author: "Richard J. Edwards"
 date: "07/11/2023"
-version: "v0.4.0"
+version: "v0.4.1"
 output:
   html_document:
     #css: http://www.slimsuite.unsw.edu.au/stylesheets/slimhtml.css
@@ -37,6 +37,7 @@ knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE
 # v0.2.0 - Added config file to settings.
 # v0.3.0 - Moved all the main functions to merquryrising.R.
 # v0.4.0 - Add tabular output of purge classification.
+# v0.4.1 - Enabled reading of qv and completeness from main merqury directory.
 
 # TO DO
 # [Y] : Implement reading of setting from merquryrising.config.
@@ -196,7 +197,7 @@ if(nrow(D$boundary) > 0){
 # Processing
 
 
-### Reference-normalised scores
+## Reference-normalised scores
 
 Generate `Table2` from `Table1`, with all values relative to reference.
 
@@ -211,7 +212,7 @@ D <- makeTab2(D)
 At this point, we have two "wide" tables of the kmer counts for each genome that belong to different assembly (`afreq`) and raw (`rfreq`) frequency classes. `Table1` has absolute values, whilst `Table2` has values relative to the reference. 
 
 
-### Classification table
+## Classification table
 
 Generate `Table3`. This is a "long" version of Table 1, with the addition of a `knum` field. `afreq` and `rfreq` are then converted to the categories based on `afreq` and ploidy. Assembly-only kmers are arbitrarily given haploid or diploid kmer frequencies for the purposes of calculating the total kmer percentage for these categories.
 

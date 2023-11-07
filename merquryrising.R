@@ -1,6 +1,6 @@
 ########################################################
 ### Merqury Rising: Kmer-based QV Assessment   ~~~~~ ###
-### VERSION: 0.4.0                             ~~~~~ ###
+### VERSION: 0.4.1                             ~~~~~ ###
 ### LAST EDIT: 07/11/23                        ~~~~~ ###
 ### AUTHORS: Richard Edwards 2023              ~~~~~ ###
 ### CONTACT: rich.edwards@uwa.edu.au           ~~~~~ ###
@@ -12,6 +12,7 @@
 # v0.2.0 : Initial version, numbered to mirror the corresponding Rmd file.
 # v0.3.0 - Moved all the main functions to merquryrising.R.
 # v0.4.0 - Add tabular output of purge classification.
+# v0.4.1 - Enabled reading of qv and completeness from main merqury directory.
 version = "v0.4.0"
 
 ####################################### ::: USAGE ::: ############################################
@@ -66,7 +67,7 @@ defaults = list(basefile="merquryrising",   # Prefix for output files (log and p
                 boundary="calculate",       # Whether calculate boundaries or load from ploidy file if provided.
                 merqurydir="merqury",       # Directory containing merqury output files for processing
                 histfiles="*.spectra-cn.hist",   # list.files() pattern match for input files
-                histsort=FALSE,             # Optional re-ordering of input files (comma separated list)
+                histsort=TRUE,              # Optional re-ordering of input files (comma separated list). Set FALSE to match loasded file list.
                 labels="merquryrising.fofn",     # FOFN with labels mapping on to histfiles
                 ploidy="default",           # Ploidy of the assembly (hap/dip). If default/parse, will look for a "dip" suffix in the assembly name.
                 ploidyfile="default",       # Name of the ploidy file. If default" will use the first *.ploidy file
@@ -123,16 +124,27 @@ for(cmd in c("pdfwidth","pdfheight","pdfscale","namesize","labelsize","diploid")
   settings[[cmd]] = as.numeric(settings[[cmd]])
 }
 #i# list parameters
-for(cmd in c("histsort")){
-  if(sum(grep(",",settings[[cmd]],fixed=TRUE)) > 0){
-    settings[[cmd]] = strsplit(settings[[cmd]],',',TRUE)[[1]]
-  }else{
-    settings[[cmd]] <- defaults[[cmd]]
-  }
-}
+# for(cmd in c()){
+#   if(sum(grep(",",settings[[cmd]],fixed=TRUE)) > 0){
+#     settings[[cmd]] = strsplit(settings[[cmd]],',',TRUE)[[1]]
+#   }else{
+#     settings[[cmd]] <- defaults[[cmd]]
+#   }
+# }
 #i# logical parameters
 for(cmd in c("debug","dev","fullrun","tutorial","makexlsx")){
   settings[[cmd]] = as.logical(settings[[cmd]])
+}
+#i# Special treatment of settings
+# - Convert histsort to integer vector if needed
+for(cmd in c("histsort")){
+  if(settings[[cmd]] %in% c("TRUE","FALSE")){
+    settings[[cmd]] = as.logical(settings[[cmd]])
+  }else{
+    if(sum(grep(",",settings[[cmd]],fixed=TRUE)) > 0){
+      settings[[cmd]] = as.integer(strsplit(settings[[cmd]],',',TRUE)[[1]])
+    }
+  }
 }
 
 #i# Set warnings based on debug
@@ -263,7 +275,15 @@ setInputFiles <- function(){
   adb$label <- adb$G
   if(file.exists(settings$labels)){
     labdb <- read.table(settings$labels) %>% rename(label=V1,file=V2)
-    adb <- left_join(adb %>% select(-label),labdb)
+    if(settings$histsort == TRUE){
+      prex <- nrow(adb)
+      # Set to order of FOFN and filter anything not present in both tables.
+      adb <- inner_join(labdb,adb %>% select(-label))
+      logWrite(paste0('#FILT Filtered on loaded labels from ',settings$labels,': ',prex,' -> ',nrow(adb),' assemblies.'))
+      adb$G <- paste0("G",1:nrow(adb))
+    }else{
+      adb <- left_join(adb %>% select(-label),labdb)
+    }
   }
   if(settings$labels == "FALSE"){
     adb$label <- adb$G
@@ -279,10 +299,16 @@ setInputFiles <- function(){
   adb$completeness <- NA
   for(i in 1:nrow(adb)){
     qvfile <- paste0(settings$merqurydir,"/qv/",adb$name[i],".merqury.qv")
+    if(! file.exists(qvfile)){
+      qvfile <- paste0(settings$merqurydir,"/",adb$name[i],".merqury.qv")
+    }
     if(file.exists(qvfile)){
       adb$qv[i] <- read.table(qvfile)[1,4]
     }
     statsfile <- paste0(settings$merqurydir,"/stats/",adb$name[i],".merqury.completeness.stats")
+    if(! file.exists(statsfile)){
+      statsfile <- paste0(settings$merqurydir,"/",adb$name[i],".merqury.completeness.stats")
+    }
     if(file.exists(statsfile)){
       adb$completeness[i] <- read.table(statsfile)[1,5]
     }
