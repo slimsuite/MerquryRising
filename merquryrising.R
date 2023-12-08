@@ -1,7 +1,7 @@
 ########################################################
-### Merqury Rising: Kmer-based QV Assessment   ~~~~~ ###
-### VERSION: 0.4.1                             ~~~~~ ###
-### LAST EDIT: 07/11/23                        ~~~~~ ###
+### Merqury Rising: Kmer-based QC Assessment   ~~~~~ ###
+### VERSION: 0.4.3                             ~~~~~ ###
+### LAST EDIT: 07/12/23                        ~~~~~ ###
 ### AUTHORS: Richard Edwards 2023              ~~~~~ ###
 ### CONTACT: rich.edwards@uwa.edu.au           ~~~~~ ###
 ########################################################
@@ -13,7 +13,9 @@
 # v0.3.0 - Moved all the main functions to merquryrising.R.
 # v0.4.0 - Add tabular output of purge classification.
 # v0.4.1 - Enabled reading of qv and completeness from main merqury directory.
-version = "v0.4.0"
+# v0.4.2 - Fixed histsort bug.
+# v0.4.3 - Fixed a bug with some diploid Missing kmers being assigned as Alternative.
+version = "v0.4.3"
 
 ####################################### ::: USAGE ::: ############################################
 # Example use:
@@ -35,12 +37,13 @@ version = "v0.4.0"
 
 ####################################### ::: TODO ::: ############################################
 #i# See the accompanying RMarkdown for a more complete list of planned upgrades.
-# [ ] : Generate a working draft of this script based on the RMarkdown
+# [Y] : Generate a working draft of this script based on the RMarkdown
 # [ ] : Check all arguments are processed correctly.
 # [ ] : Complete full parsing of the config file.
 # [ ] : Make sure it can be run from the RMarkdown just to load the functions etc. without processing.
 # [ ] : Check and rationalise libraries.
-# [ ] : Add output of files.
+# [Y] : Add output of files.
+# [ ] : Add handling of empty stats or QV files.
 
 ####################################### ::: SETUP ::: ############################################
 ### ~ Load packages ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ###
@@ -67,7 +70,7 @@ defaults = list(basefile="merquryrising",   # Prefix for output files (log and p
                 boundary="calculate",       # Whether calculate boundaries or load from ploidy file if provided.
                 merqurydir="merqury",       # Directory containing merqury output files for processing
                 histfiles="*.spectra-cn.hist",   # list.files() pattern match for input files
-                histsort=TRUE,              # Optional re-ordering of input files (comma separated list). Set FALSE to match loasded file list.
+                histsort=TRUE,              # Optional re-ordering of input files (comma separated list). Set FALSE to match loaded file list.
                 labels="merquryrising.fofn",     # FOFN with labels mapping on to histfiles
                 ploidy="default",           # Ploidy of the assembly (hap/dip). If default/parse, will look for a "dip" suffix in the assembly name.
                 ploidyfile="default",       # Name of the ploidy file. If default" will use the first *.ploidy file
@@ -75,13 +78,12 @@ defaults = list(basefile="merquryrising",   # Prefix for output files (log and p
                 only=TRUE,                  # Whether to add extra kmers to represent the assembly-only fraction
                 makexlsx=FALSE,             # Make TRUE to generate compiled Excel file
                 outlog=stdout(),            # Change to filename for log output.
-                digits=3,                   # Number of decimal places for tabular outpur
+                digits=3,                   # Number of decimal places for tabular output
                 pngwidth=1200,pngheight=600,pointsize=24,plotdir="plots",
                 pdfwidth=12,pdfheight=4,pdfscale=1,namesize=1,labelsize=1,
                 reference="default",
                 rscript=TRUE,debug=FALSE,dev=FALSE,fullrun=TRUE,tutorial=FALSE,
-                rdir="",
-                outlog=stdout())
+                rdir="")
 
 #i# Setup settings list from defaults and commandline options.
 settings <- defaults
@@ -205,8 +207,8 @@ D$kclassdb <- tibble(afreq=c("1","2","3+", "0","1","2","3+", "0","1","2","3+", "
                    rfreq=c("none","none","none", "low","low","low","low", "hap","hap","hap","hap", "dip","dip","dip","dip", "high","high","high","high"),
                    class=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","diploid","duplicate","duplicate", "missing","collapsed","collapsed","repeats"),
                    purge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","good","under","under", "over","over","over","neutral"),
-                   dipclass=c("only","only","only", "noise","lowQ","lowQ","lowQ", "alternate","haploid","duplicate","duplicate", "missing","haploid","diploid","duplicate", "missing","collapsed","collapsed","repeats"),
-                   dippurge=c("only","only","only", "n/a","under","under","under", "good","good","under","under", "over","over","good","under", "over","over","over","neutral")
+                   dipclass=c("only","only","only", "noise","lowQ","lowQ","lowQ", "missing","haploid","duplicate","duplicate", "missing","haploid","diploid","duplicate", "missing","collapsed","collapsed","repeats"),
+                   dippurge=c("only","only","only", "n/a","under","under","under", "over","good","under","under", "over","over","good","under", "over","over","over","neutral")
 )
 
 ################################## ::: FUNCTIONS ::: ######################################
@@ -275,7 +277,11 @@ setInputFiles <- function(){
   adb$label <- adb$G
   if(file.exists(settings$labels)){
     labdb <- read.table(settings$labels) %>% rename(label=V1,file=V2)
-    if(settings$histsort == TRUE){
+    labsort <- FALSE
+    if(is.logical(settings$histsort)){
+      labsort <- settings$histsort
+    }
+    if(labsort){
       prex <- nrow(adb)
       # Set to order of FOFN and filter anything not present in both tables.
       adb <- inner_join(labdb,adb %>% select(-label))
@@ -392,7 +398,7 @@ makeTab2 <- function(D){
 
 ### ~~~~~~~~~~~~~~~~ Table 3 ~~~~~~~~~~~~~~~~ ###
 # - Convert `Table1` into a long version [`Table3`] -> `knum` and `assembly`.
-#!# Add report of full ksize and then calculate the %assembly-only and adjust "collapsed"
+# - Add fake raw kmers for the %assembly-only based on ploidy.
 makeTab3 <- function(D){
   Tab3 <- D$Tab1 %>%
     pivot_longer(

@@ -1,8 +1,8 @@
 ---
-title: "Merqury Rising: Kmer-based QV Assessment"
+title: "Merqury Rising: Kmer-based QC Assessment"
 author: "Richard J. Edwards"
-date: "07/11/2023"
-version: "v0.4.1"
+date: "06/12/2023"
+version: "v0.4.3"
 output:
   html_document:
     #css: http://www.slimsuite.unsw.edu.au/stylesheets/slimhtml.css
@@ -28,7 +28,7 @@ Input files are read from the directory specified by `merqurydir=PATH` (default:
 1. Default mode will compare each kmer histogram with the preceding one.
 2. Reference mode will compare every kmer histogram with the same reference. (Either named, else the first file.)
 
-To check the settings loaded from the config file, edit the Rmarkdown to have `debug=TRUE`.
+To check the settings loaded from the config file, edit the Rmarkdown to have `debug=TRUE`. See the appendix and tutorial for more information about the MerquryRising workflow and classification definitions.
 
 ```{r rmd, echo=FALSE, warning=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE)
@@ -38,6 +38,8 @@ knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning=FALSE, message=FALSE
 # v0.3.0 - Moved all the main functions to merquryrising.R.
 # v0.4.0 - Add tabular output of purge classification.
 # v0.4.1 - Enabled reading of qv and completeness from main merqury directory.
+# v0.4.2 - Fixed histsort bug.
+# v0.4.3 - Fixed a bug with some diploid Missing kmers being assigned as Alternative.
 
 # TO DO
 # [Y] : Implement reading of setting from merquryrising.config.
@@ -70,56 +72,11 @@ override <- c('fullrun=FALSE','rdir=.','debug=FALSE','dev=TRUE','makexlsx=TRUE')
 source('./merquryrising.R')
 ```
 
-```{r functions, eval=FALSE, include=FALSE}
-#i# Now part of the merquryrising.R script.
-```
-
-## Merqury Rising workflow
-
-The general `MerquryRising` workflow is as follows:
-
-- Run Merqury.
-- Establish list of input assembly files and build alias list (`G1` to `Gn`).
-- Load the read kmer frequency boundaries from the ploidy file: `ploidy`, `depth`, `boundary`.
-- Load the `*.spectra-cn.hist` data tables into tibbles with 3 fields: `afreq` (kmer frequency in assembly), `rfreq` (kmer frequency in reads) and `knum` (number of different kmers).
-- Convert the `read-only` kmers into `0` and make sure all fields are integers.
-- Add the `*.only.hist` data to each table.
-- Join all the count tables by `afreq` and `rfreq` to give a field per input file. (`G1` to `Gn`). [`Table1`]
-- Convert `Table1` into a version of all values relative to reference. [`Table2`]
-- Convert `Table1` into a long version [`Table3`] -> `knum` and `assembly`.
-- Convert `Table3` `rfreq` into categories based on `ploidy`: `low`, `hap`, `dip`, `high`.
-- Create a `Table3` `class` field, based on `afreq` and `rfreq` (see below)
-- Collapse by `class` and sum up the `knum`
-- Create a `Table4` from `Table3` with the `purge` categories (see below)
-- Generate a horizontal stacked bar plot of each assembly: noise, only, lowQ, duplicate, alternate, haploid, diploid, repeats, collapsed, missing [`Table3`]
-- Generate a horizontal stacked bar plot of each assembly: noise, only, under, good, over [`Table4`]
-- Generate a kmer difference plot for each assembly versus the reference with afreq of 0, 1, 2, 3+ [`Table2`]
-- Reshape `Table3` and `Table4` wide and convert into difference versus reference. Generate difference plots.
-
-**NOTE:** The `only` class could indicate assembly errors, or it could indicate missing kmers due to sequencing biases. As such, they are excluded from the classification, as are the `noise` kmers, which are suspected read errors or contamination.
-
-Please see the Tutorial for more details.
-
-### Kmer classes
-
-Kmer classes will be assigned based on the read frequency (`rfreq`) and kmer frequency (`kfreq`), ploidy boundaries (see Tutorial and below), and whether the assembly is haploid or diploid. Classification is first based on more specific categories, which are then grouped into broader purge categories. The `dipclass` and `dippurge` ratings are used for diploid assemblies.
-
-_Add table of class and purge descriptions._
-
-
-```{r dipkmerclasses}
-#i# Definition now part of the merquryrising.R script.
-kable(D$kclassdb, "html", caption = "MerquryRising Kmer frequency classes.", align = "c") %>% kable_styling("striped", full_width = F)
-```
-
-
 # Input Data
 
 The main input for MerquryRising is the set of `*.spectra-cn.hist` and corresponding `.only.hist` files, with optional `qv/*.merqury.qv` and `stats/*.merqury.completeness.stats` files. The latter are matched on the `name` field, which is parsed from the `*.spectra-cn.hist` and split on `.merqury.`. (See the example data if unclear.)
 
-Optionally, assembly names will be mapped from the `labels=FILE`, otherwise the label will be the "G" number, `G1` to `Gn`.
-
-_Add the field descriptions here_.
+Optionally, assembly names will be mapped from the `labels=FILE`, otherwise the label will be the "G" number, `G1` to `Gn`. (See Tutorial for field descriptions.)
 
 ## Input files and assemblies
 
@@ -454,8 +411,70 @@ for(i in 1:nrow(D$adb)){
 }
 ```
 
+# Appendix
 
+## Merqury Rising workflow
 
+The general `MerquryRising` workflow is as follows:
+
+- Run Merqury.
+- Establish list of input assembly files and build alias list (`G1` to `Gn`).
+- Load the read kmer frequency boundaries from the ploidy file: `ploidy`, `depth`, `boundary`.
+- Load the `*.spectra-cn.hist` data tables into tibbles with 3 fields: `afreq` (kmer frequency in assembly), `rfreq` (kmer frequency in reads) and `knum` (number of different kmers).
+- Convert the `read-only` kmers into `0` and make sure all fields are integers.
+- Add the `*.only.hist` data to each table.
+- Join all the count tables by `afreq` and `rfreq` to give a field per input file. (`G1` to `Gn`). [`Table1`]
+- Convert `Table1` into a version of all values relative to reference. [`Table2`]
+- Convert `Table1` into a long version [`Table3`] -> `knum` and `assembly`.
+- Convert `Table3` `rfreq` into categories based on `ploidy`: `low`, `hap`, `dip`, `high`.
+- Create a `Table3` `class` field, based on `afreq` and `rfreq` (see below)
+- Collapse by `class` and sum up the `knum`
+- Create a `Table4` from `Table3` with the `purge` categories (see below)
+- Generate a horizontal stacked bar plot of each assembly: noise, only, lowQ, duplicate, alternate, haploid, diploid, repeats, collapsed, missing [`Table3`]
+- Generate a horizontal stacked bar plot of each assembly: noise, only, under, good, over [`Table4`]
+- Generate a kmer difference plot for each assembly versus the reference with afreq of 0, 1, 2, 3+ [`Table2`]
+- Reshape `Table3` and `Table4` wide and convert into difference versus reference. Generate difference plots.
+
+**NOTE:** The `only` class could indicate assembly errors, or it could indicate missing kmers due to sequencing biases. As such, they are excluded from the classification, as are the `noise` kmers, which are suspected read errors or contamination.
+
+Please see the Tutorial for more details.
+
+## Kmer classes
+
+Kmer classes will be assigned based on the read frequency (`rfreq`) and kmer frequency (`kfreq`), ploidy boundaries (see Tutorial and below), and whether the assembly is haploid or diploid. Classification is first based on more specific categories, which are then grouped into broader purge categories. The `dipclass` and `dippurge` ratings are used for diploid assemblies.
+
+```{r dipkmerclasses}
+#i# Definition now part of the merquryrising.R script.
+kable(D$kclassdb, "html", caption = "MerquryRising Kmer frequency classes.", align = "c") %>% kable_styling("striped", full_width = F)
+```
+
+### Kmer classification
+
+MerquryRising uses the following kmer classes:
+
+* **only** = kmers found only in the assembly and not the raw reads. These could represent errors that have been introduced (e.g. by data from different, less accurate, sequencing technology), but they could also represent missing kmers due to biases in the raw reads.
+* **noise** = kmers found only in the raw data and at `low` frequency. These are most likely to be base-calling **Read Errors**, or contamination.
+* **lowQ** = kmers that are found only at `low` abundance in the raw data but also in the assembly indicate **Low Quality** regions and possible contamination.
+* **duplicate** = kmers found at `haploid` frequency in the raw data but appearing more than once in the assembly are flagged as probable **Duplicate** regions. kmers at `diploid` frequency found more than once in a haploid assembly, or more than twice in a diploid assembly, are also flagged as `Duplicate`. These could represent scenarios where a haploid assembly contains both alleles, or where both haplotypes contain a hemizygous region that is only present in one haplotype.
+* **alternate** = `haploid` frequency kmers that are not found in a haploid assembly are assumed to be from the **Alternate Haplotype**. (Where the assembly has been phased, can be confirmed by running Merqury on the combined diploid assembly of both haplotypes.)
+* **haploid** = kmers found at `haploid` frequency in the raw data but and once in the assembly are flagged as **Haplotype Specific** kmers (or **Haploid kmers**).
+* **diploid** = kmers found at `diploid` frequency in the raw data but and once in a haploid assembly, or twice in a diploid assembly, are flagged as **Diploid kmers**.
+* **repeats** = kmers found at `high` frequency in the raw data and three or more times in the assembly are flagged as **Repeats**. These are not obviously collapsed but it is not possible to assess them for under- or over-representation based on these data. (Note that rDNA repeats will normally be in this category but be collapsed.)
+* **collapsed** = kmers found at `high` frequency in the raw data but only one or two times in the assembly are flagged as **Collapsed** repeats that are under-represented in the assembly.
+* **missing** = kmers found at `diploid` or `high` frequency in the raw data but missing from the assembly are flagged as **Missing**. For diploid assemblies, kmers found at `haploid` frequency in the raw data but missing from the assembly are also flagged as **Missing**.
+
+### Purge Ratings
+
+Classes are grouped into purge categories based on the observed assembly frequency (`afreq`) versus the expectation derived from the raw data (`rfreq`) :
+
+* **only** = Possible base errors in the assembly, or missing raw read kmers due to sequencing biases etc. Do not inform on duplicate purging status. (Class: `only`)
+* **n/a** = Errors or contamination in the raw data. Do not inform on duplicate purging status. (Class: `noise`)
+* **under** = Under-purged kmers that should not be in the assembly. (Class: `lowQ`, `duplicate`)
+* **good** = kmers where the assembly frequency is consistent with the raw read frequency (Class: `alternate`, `haploid`, `diploid`)
+* **neutral** = Repeat kmers that are not obviously collapsed. Merqury does not report assembly frequencies above 4, making it impossible to judge whether many repetitive kmers are over- or under-represented. (Class: `repeats`)
+* **over** = Over-purged kmers that appear to be lacking occurrences in the assembly, given their raw read frequency. (Class: `collapsed`, `missing`)
+
+**NOTE:** The `only` class could indicate assembly errors, or it could indicate missing kmers due to sequencing biases. As such, they are excluded from the classification, as are the `noise` kmers, which are suspected read errors or contamination.
 
 
 
